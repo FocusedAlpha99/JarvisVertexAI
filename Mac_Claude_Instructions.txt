@@ -1,0 +1,199 @@
+================================================================================
+CLAUDE CODE INSTRUCTIONS FOR MACOS IMPLEMENTATION
+================================================================================
+Project: JarvisVertexAI - Privacy-First iOS Gemini Assistant
+Objective: Complete the iOS implementation with all core functionality
+
+================================================================================
+IMMEDIATE TASKS TO COMPLETE CORE FUNCTIONALITY
+================================================================================
+
+1. CREATE XCODE PROJECT
+   - Open Xcode and create new iOS App
+   - Product Name: JarvisVertexAI
+   - Interface: SwiftUI
+   - Language: Swift
+   - Minimum iOS: 17.0
+   - Bundle ID: com.jarvisvertexai.app
+
+2. ADD PACKAGE DEPENDENCIES
+   In Xcode: File > Add Package Dependencies
+   - ObjectBox: https://github.com/objectbox/objectbox-swift.git (4.0.0)
+   - CryptoSwift: https://github.com/krzyzanowskim/CryptoSwift.git (1.8.0)
+   - KeychainAccess: https://github.com/kishikawakatsumi/KeychainAccess.git (4.2.0)
+
+3. CREATE CORE IMPLEMENTATION FILES
+   These are the ONLY files needed to complete core functionality:
+
+   a) Core/Database/ObjectBoxManager.swift
+      IMPLEMENT:
+      - class ObjectBoxManager with shared singleton
+      - initialize() function with encryption setup
+      - createSession(mode:metadata:) -> String
+      - addTranscript(sessionId:speaker:text:metadata:)
+      - getTranscripts(sessionId:) -> [Transcript]
+      - deleteSession(sessionId:)
+      - deleteAllData()
+      - performMaintenance() for 30-day cleanup
+      - Use AES-256 encryption with device-specific key
+
+   b) Core/Privacy/PHIRedactor.swift
+      IMPLEMENT:
+      - class PHIRedactor
+      - redactPHI(from:) -> String function
+      - Regex patterns for: SSN, phone, email, MRN, addresses
+      - Return redacted string with placeholders like [SSN_REDACTED]
+
+   c) Core/VertexAI/AudioSession.swift
+      IMPLEMENT:
+      - class AudioSession
+      - init(projectId:region:endpointId:)
+      - streamAudio() with WebSocket connection
+      - Privacy config: disablePromptLogging=true
+      - Use ephemeral session IDs
+      - terminate() to clear all data
+
+   d) Core/VertexAI/LocalSTTTTS.swift
+      IMPLEMENT:
+      - class LocalSTTTTS
+      - startListening() using SFSpeechRecognizer
+      - stopListening()
+      - speak(text:) using AVSpeechSynthesizer
+      - processTextOnly(_ text:) -> String for Gemini API
+      - Force on-device recognition: requiresOnDeviceRecognition=true
+
+   e) Core/VertexAI/MultimodalChat.swift
+      IMPLEMENT:
+      - class MultimodalChat
+      - sendMessage(text:attachments:) async -> String?
+      - uploadImage(_ data:) with ephemeral flag
+      - uploadDocument(_ data:) with auto-delete
+      - Use Vertex AI REST API with privacy headers
+      - Clean up files after 24 hours
+
+4. COPY EXISTING UI FILES
+   Copy these files from the cloned repository to Xcode project:
+   - JarvisVertexAIApp.swift (main app)
+   - UI/Views/AudioModeView.swift
+   - UI/Views/VoiceChatLocalView.swift
+   - UI/Views/TextMultimodalView.swift
+   - Core/ToolCalling/GoogleOAuthManager.swift
+   - Tests/ObjectBoxTests.swift
+   - Info.plist (merge with Xcode's)
+
+5. CONFIGURE ENVIRONMENT
+   Create .env.local file in project root:
+   ```
+   VERTEX_PROJECT_ID=your-project-id
+   VERTEX_REGION=us-central1
+   VERTEX_CMEK_KEY=projects/[PROJECT]/locations/[REGION]/keyRings/vertex-ai-keyring/cryptoKeys/vertex-ai-cmek
+   GOOGLE_OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
+   VERTEX_AI_EXPLICIT_CACHE_MODE=off
+   ```
+
+6. IMPLEMENT VERTEX AI API CALLS
+   For each mode, implement the actual API calls:
+   
+   Mode 1 (Audio):
+   ```swift
+   let url = "https://\(region)-aiplatform.googleapis.com/v1/projects/\(projectId)/locations/\(region)/endpoints/\(endpointId):streamRawPredict"
+   // Add headers: Authorization, disablePromptLogging
+   ```
+   
+   Mode 2 (Voice Local):
+   ```swift
+   // Use on-device STT/TTS, send only text to Gemini
+   let url = "https://\(region)-aiplatform.googleapis.com/v1/projects/\(projectId)/locations/\(region)/publishers/google/models/gemini-2.5-pro:generateContent"
+   ```
+   
+   Mode 3 (Multimodal):
+   ```swift
+   // Include image data in request with ephemeral flags
+   let body = ["contents": contents, "generationConfig": ["disablePromptLogging": true]]
+   ```
+
+7. RUN CORE TESTS
+   Execute in Terminal from project directory:
+   ```bash
+   # Unit tests for privacy and database
+   xcodebuild test -scheme JarvisVertexAI -destination 'platform=iOS Simulator,name=iPhone 15'
+   
+   # Verify PHI redaction
+   # Test with: "My SSN is 123-45-6789"
+   # Should return: "My SSN is [SSN_REDACTED]"
+   
+   # Verify local storage only
+   # Check no network calls for database operations
+   # Verify encryption is active
+   ```
+
+8. VERIFY PRIVACY FEATURES
+   Critical checks before considering complete:
+   - [ ] PHI redaction working in all modes
+   - [ ] Database encrypted with AES-256
+   - [ ] No iCloud backup (check Info.plist)
+   - [ ] disablePromptLogging in all API calls
+   - [ ] OAuth using minimal scopes only
+   - [ ] 30-day auto-cleanup functioning
+   - [ ] Ephemeral file deletion after 24h
+
+================================================================================
+CRITICAL IMPLEMENTATION DETAILS
+================================================================================
+
+OBJECTBOX SETUP:
+- Store in Documents directory
+- Enable encryption: StoreOptions(encryptionKey:)
+- Disable sync: enableSync=false
+- Set file permissions: 0o600
+
+VERTEX AI HEADERS:
+Every API call MUST include:
+- "Authorization": "Bearer \(accessToken)"
+- "Content-Type": "application/json"
+- Privacy config in body: {"generationConfig": {"disablePromptLogging": true}}
+
+PHI PATTERNS TO REDACT:
+- SSN: \b\d{3}-\d{2}-\d{4}\b
+- Phone: \b(?:\+?1[-.]?)?\(?\d{3}\)?[-.]?\d{3}[-.]?\d{4}\b
+- Email: \b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b
+- MRN: \b[A-Z]{2,3}\d{6,8}\b
+
+================================================================================
+COMPLETION CRITERIA
+================================================================================
+
+The project is COMPLETE when:
+1. All 5 core Swift files are implemented
+2. All 3 modes (Audio, Voice, Text) function
+3. PHI redaction works in all modes
+4. Database is encrypted and local-only
+5. OAuth integration works with minimal scopes
+6. All privacy tests pass
+7. App runs on iOS 17+ simulator/device
+
+DO NOT add extra features beyond core functionality:
+- NO analytics or tracking
+- NO cloud backup features
+- NO social features
+- NO premium/subscription logic
+- NO onboarding flows
+- Just core privacy-first functionality
+
+================================================================================
+CLAUDE CODE ACTION PROMPT
+================================================================================
+
+Claude Code, please:
+1. Create the Xcode project as specified
+2. Implement the 5 core Swift files with full functionality
+3. Copy the existing UI files from the repository
+4. Configure the environment and dependencies
+5. Run tests to verify all privacy features work
+6. Confirm the app runs with all 3 modes functional
+
+Focus ONLY on completing core functionality. The app should be immediately usable with maximum privacy guarantees across all three conversation modes.
+
+================================================================================
+END OF INSTRUCTIONS
+================================================================================
