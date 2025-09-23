@@ -1,0 +1,260 @@
+================================================================================
+GITHUB PUSH INSTRUCTIONS FOR JARVIS VERTEX AI iOS PROJECT
+================================================================================
+Created: September 23, 2025
+Project: JarvisVertexAI - Privacy-First iOS Gemini Assistant
+
+================================================================================
+STEP 1: CREATE GITHUB REPOSITORY
+================================================================================
+
+1. Go to https://github.com/new
+2. Create a new repository with:
+   - Name: JarvisVertexAI
+   - Description: Privacy-first iOS Gemini AI assistant with 100% on-device storage
+   - Visibility: Private (recommended for initial development)
+   - DO NOT initialize with README, .gitignore, or license (we have them)
+
+================================================================================
+STEP 2: PUSH TO GITHUB FROM WINDOWS
+================================================================================
+
+Open Git Bash or Command Prompt in the project directory:
+
+cd C:\Users\tim_r\Desktop\JarvisVertexAI
+
+# Add GitHub remote (replace with your repository URL)
+git remote add origin https://github.com/YOUR_USERNAME/JarvisVertexAI.git
+
+# Verify remote was added
+git remote -v
+
+# Push to GitHub
+git push -u origin master
+
+# If you get authentication prompt:
+# - Username: Your GitHub username
+# - Password: Your GitHub Personal Access Token (not password)
+#   Generate token at: https://github.com/settings/tokens
+
+================================================================================
+STEP 3: CLONE ON MACOS FOR TESTING
+================================================================================
+
+On your Mac machine:
+
+# Clone the repository
+git clone https://github.com/YOUR_USERNAME/JarvisVertexAI.git
+cd JarvisVertexAI
+
+# Copy environment configuration
+cp .env.example .env.local
+
+# Edit .env.local with your credentials
+nano .env.local
+# Add your:
+# - VERTEX_PROJECT_ID
+# - VERTEX_REGION
+# - GOOGLE_OAUTH_CLIENT_ID
+# - VERTEX_CMEK_KEY path
+
+# Source environment
+source .env.local
+
+================================================================================
+STEP 4: CREATE XCODE PROJECT ON MACOS
+================================================================================
+
+1. Open Xcode
+2. Create New Project:
+   - iOS > App
+   - Product Name: JarvisVertexAI
+   - Team: Your development team
+   - Organization Identifier: com.yourcompany
+   - Bundle Identifier: com.yourcompany.jarvisvertexai
+   - Interface: SwiftUI
+   - Language: Swift
+   - Use Core Data: NO
+   - Include Tests: YES
+
+3. Close the project
+
+4. Copy files from cloned repo to Xcode project:
+   cp -r JarvisVertexAI/* /path/to/xcode/project/JarvisVertexAI/
+
+5. Open project in Xcode again
+
+6. Add files to project:
+   - Right-click on project navigator
+   - Add Files to "JarvisVertexAI"
+   - Select all Swift files
+   - Ensure "Copy items if needed" is unchecked
+   - Add to target: JarvisVertexAI
+
+================================================================================
+STEP 5: CONFIGURE DEPENDENCIES
+================================================================================
+
+In Xcode:
+
+1. Select project in navigator
+2. Select project (not target) in editor
+3. Go to "Package Dependencies" tab
+4. Click "+" to add packages:
+
+   ObjectBox:
+   - URL: https://github.com/objectbox/objectbox-swift.git
+   - Version: 4.0.0 - Next Major
+
+   Google Cloud (if available for Swift):
+   - URL: https://github.com/googleapis/google-cloud-swift.git
+   - Version: Latest
+
+   CryptoSwift:
+   - URL: https://github.com/krzyzanowskim/CryptoSwift.git
+   - Version: 1.8.0 - Next Major
+
+   KeychainAccess:
+   - URL: https://github.com/kishikawakatsumi/KeychainAccess.git
+   - Version: 4.2.0 - Next Major
+
+================================================================================
+STEP 6: CONFIGURE INFO.PLIST
+================================================================================
+
+1. Copy Info.plist from repo to project
+2. In Xcode, select Info.plist
+3. Verify all privacy keys are present:
+   - NSMicrophoneUsageDescription
+   - NSSpeechRecognitionUsageDescription
+   - NSPhotoLibraryUsageDescription
+   - NSCameraUsageDescription
+
+================================================================================
+STEP 7: RUN TESTS
+================================================================================
+
+# In Terminal, navigate to project:
+cd /path/to/xcode/project/JarvisVertexAI
+
+# Make test scripts executable
+chmod +x *.sh
+
+# Run unit tests
+./run_unit_tests.sh
+
+# Run privacy compliance tests
+./privacy_compliance_tests.sh
+
+# Run HIPAA compliance
+./hipaa_compliance_check.sh
+
+# Or run via Xcode:
+# Cmd+U to run all tests
+
+================================================================================
+STEP 8: CONFIGURE VERTEX AI
+================================================================================
+
+# Install Google Cloud CLI if not present
+brew install google-cloud-sdk
+
+# Login and configure
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+
+# Enable APIs
+gcloud services enable aiplatform.googleapis.com
+gcloud services enable cloudkms.googleapis.com
+
+# Create CMEK key
+gcloud kms keyrings create vertex-ai-keyring --location=us-central1
+gcloud kms keys create vertex-ai-cmek \
+  --location=us-central1 \
+  --keyring=vertex-ai-keyring \
+  --purpose=encryption \
+  --protection-level=hsm
+
+# Grant Vertex AI access to key
+gcloud kms keys add-iam-policy-binding vertex-ai-cmek \
+  --location=us-central1 \
+  --keyring=vertex-ai-keyring \
+  --member="serviceAccount:service-PROJECT_NUMBER@gcp-sa-aiplatform.iam.gserviceaccount.com" \
+  --role="roles/cloudkms.cryptoKeyEncrypterDecrypter"
+
+================================================================================
+STEP 9: DEPLOY TO DEVICE/SIMULATOR
+================================================================================
+
+1. Select target device in Xcode (simulator or connected device)
+2. Press Cmd+R to build and run
+3. Grant permissions when prompted:
+   - Microphone access
+   - Speech recognition
+   - Photo library (for Mode 3)
+
+================================================================================
+STEP 10: VERIFY PRIVACY FEATURES
+================================================================================
+
+Once running, verify:
+
+1. Privacy Dashboard shows all green checks
+2. Mode 1: Audio streams with zero retention
+3. Mode 2: STT works offline (airplane mode test)
+4. Mode 3: Files deleted after 24 hours
+5. PHI redaction working (test with SSN format)
+6. Database is encrypted (check raw files)
+7. No iCloud backup occurs
+8. OAuth uses minimal scopes only
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+ISSUE: "ObjectBox not found"
+FIX: Ensure ObjectBox package is added and resolved in Xcode
+
+ISSUE: "Vertex AI 403 Forbidden"
+FIX: Check project ID and ensure APIs are enabled
+
+ISSUE: "Microphone permission denied"
+FIX: Reset simulator or go to Settings > Privacy > Microphone
+
+ISSUE: "Git push authentication failed"
+FIX: Use Personal Access Token, not password
+     Create at: https://github.com/settings/tokens
+     Scopes needed: repo, workflow
+
+================================================================================
+FINAL CHECKLIST
+================================================================================
+
+□ GitHub repository created
+□ Code pushed from Windows
+□ Cloned on macOS
+□ Xcode project configured
+□ Dependencies installed
+□ Environment variables set
+□ Vertex AI configured
+□ CMEK key created
+□ Tests passing
+□ App runs on simulator/device
+□ Privacy features verified
+□ PHI redaction working
+□ Local database only (no sync)
+
+================================================================================
+SUPPORT
+================================================================================
+
+For issues:
+1. Check COMPLETE_TEST_SUITE.txt for detailed testing
+2. Review error logs in Xcode console
+3. Verify all environment variables are set
+4. Ensure Vertex AI project has required APIs enabled
+5. Check Google Cloud quotas and billing
+
+================================================================================
+END OF INSTRUCTIONS
+================================================================================
