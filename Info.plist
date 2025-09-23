@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- App Configuration -->
+    <key>CFBundleDevelopmentRegion</key>
+    <string>$(DEVELOPMENT_LANGUAGE)</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    
+    <!-- Privacy Permissions -->
+    
+    <!-- Microphone for voice input -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>This app needs microphone access for voice conversations. Audio is processed locally or with zero-retention Gemini API. No audio is stored permanently.</string>
+    
+    <!-- Speech Recognition -->
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>This app uses on-device speech recognition to convert your voice to text. All processing happens locally on your device.</string>
+    
+    <!-- Photo Library for Mode 3 -->
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>This app needs photo library access to select images for multimodal conversations. Photos are processed ephemerally and deleted immediately after use.</string>
+    
+    <!-- Camera for Mode 3 -->
+    <key>NSCameraUsageDescription</key>
+    <string>This app needs camera access to capture photos for multimodal conversations. Photos are processed ephemerally and deleted immediately after use.</string>
+    
+    <!-- Documents for Mode 3 -->
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
+    <key>UISupportsDocumentBrowser</key>
+    <true/>
+    
+    <!-- Network Configuration -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <!-- Require HTTPS for all connections -->
+        <key>NSAllowsArbitraryLoads</key>
+        <false/>
+        <key>NSAllowsArbitraryLoadsForMedia</key>
+        <false/>
+        <key>NSAllowsArbitraryLoadsInWebContent</key>
+        <false/>
+        
+        <!-- Specific domains for Vertex AI and Google APIs -->
+        <key>NSExceptionDomains</key>
+        <dict>
+            <key>googleapis.com</key>
+            <dict>
+                <key>NSIncludesSubdomains</key>
+                <true/>
+                <key>NSExceptionRequiresForwardSecrecy</key>
+                <true/>
+                <key>NSExceptionMinimumTLSVersion</key>
+                <string>TLSv1.3</string>
+            </dict>
+            <key>aiplatform.googleapis.com</key>
+            <dict>
+                <key>NSIncludesSubdomains</key>
+                <true/>
+                <key>NSExceptionRequiresForwardSecrecy</key>
+                <true/>
+                <key>NSExceptionMinimumTLSVersion</key>
+                <string>TLSv1.3</string>
+            </dict>
+        </dict>
+    </dict>
+    
+    <!-- Background Modes -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <!-- Audio for voice conversations -->
+        <string>audio</string>
+        <!-- Processing for ephemeral data cleanup -->
+        <string>processing</string>
+    </array>
+    
+    <!-- URL Schemes for OAuth -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>com.jarvis.vertexai</string>
+            </array>
+            <key>CFBundleURLName</key>
+            <string>OAuth Callback</string>
+        </dict>
+    </array>
+    
+    <!-- Data Protection -->
+    <key>NSFileProtectionComplete</key>
+    <true/>
+    <key>UIFileSharingEnabled</key>
+    <false/>
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+        <!-- No external app schemes for privacy -->
+    </array>
+    
+    <!-- App Privacy Configuration -->
+    <key>NSPrivacyTracking</key>
+    <false/>
+    <key>NSPrivacyTrackingDomains</key>
+    <array>
+        <!-- No tracking domains -->
+    </array>
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array>
+        <!-- No data collection -->
+    </array>
+    
+    <!-- Accessibility -->
+    <key>UIAccessibilitySupportsReduceMotion</key>
+    <true/>
+    <key>UIAccessibilitySupportsDynamicType</key>
+    <true/>
+    
+    <!-- Device Requirements -->
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>arm64</string>
+        <string>microphone</string>
+    </array>
+    
+    <!-- UI Configuration -->
+    <key>UILaunchStoryboardName</key>
+    <string>LaunchScreen</string>
+    <key>UIRequiresFullScreen</key>
+    <false/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    
+    <!-- Status Bar -->
+    <key>UIStatusBarStyle</key>
+    <string>UIStatusBarStyleDefault</string>
+    <key>UIViewControllerBasedStatusBarAppearance</key>
+    <true/>
+    
+    <!-- Export Compliance -->
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <true/>
+    <key>ITSEncryptionExportComplianceCode</key>
+    <string>PENDING_CCATS</string>
+    
+    <!-- App Store Privacy Labels -->
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array>
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>C617.1</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>
