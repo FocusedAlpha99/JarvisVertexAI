@@ -1,0 +1,144 @@
+# Best Practices for Gemini Live API (Audio) in iOS/Swift
+
+This guide provides best practices for implementing the Gemini Live API for real-time audio conversations in an iOS application using Swift. It is based on official Google documentation and common practices for handling WebSockets and audio in iOS.
+
+## 1. WebSocket Connection
+
+### Endpoint
+The correct WebSocket endpoint for the Gemini Live API is:
+`wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`
+
+### Authentication
+- Use an API key for authentication.
+- The API key can be sent as a query parameter in the WebSocket URL: `?key=YOUR_API_KEY`
+- Alternatively, it can be included in the request headers as `x-goog-api-key`.
+
+### `URLSessionWebSocketTask` Implementation
+- **Delegate:** Use a `URLSessionWebSocketDelegate` to handle connection lifecycle events (`didOpenWithProtocol`, `didCloseWithCode`).
+- **Receive Loop:** Implement a recursive function to continuously receive messages. Call `receive()` again within the completion handler of the previous `receive()` call.
+- **Keep-Alive:** Use `webSocketTask.sendPing` periodically (e.g., every 10-15 seconds) to keep the connection alive and prevent timeouts.
+- **Error Handling:** Implement robust error handling and a reconnection strategy with exponential backoff in case of network interruptions.
+- **Concurrency:** Use Swift's `async/await` to manage the asynchronous nature of WebSockets, which simplifies the code and improves readability.
+
+## 2. Audio Handling
+
+### Audio Session Configuration
+- Configure the `AVAudioSession` for simultaneous input and output:
+  ```swift
+  let session = AVAudioSession.sharedInstance()
+  try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
+  try session.setActive(true)
+  ```
+
+### Input Audio (to Gemini)
+- **Format:** The Gemini Live API expects audio in the following format:
+  - **Codec:** 16-bit Linear PCM
+  - **Sample Rate:** 16,000 Hz (16kHz)
+  - **Channels:** 1 (mono)
+- **Implementation:**
+  1. Use `AVAudioEngine` to get access to the microphone's input node.
+  2. Get the native hardware sample rate and format from the input node.
+  3. Use an `AVAudioConverter` to convert the audio from the native format to 16kHz, 16-bit mono PCM.
+  4. Send the converted audio data as a Base64-encoded string in the WebSocket message.
+
+### Output Audio (from Gemini)
+- **Format:** The API streams back audio in the following format:
+  - **Codec:** Raw 16-bit Linear PCM
+  - **Sample Rate:** 24,000 Hz (24kHz)
+  - **Channels:** 1 (mono)
+- **Playback and Error `1954115647`:**
+  - The `AVAudioPlayer` error `1954115647` (`kAudioFileUnsupportedFileTypeError`) occurs because `AVAudioPlayer` cannot play raw PCM data without a valid audio file header.
+  - **Solution:** Before passing the audio data to `AVAudioPlayer`, you must prepend a WAV header to the raw PCM data.
+
+  - **Example function to create a WAV header:**
+    ```swift
+    private func createWAVData(from pcmData: Data, sampleRate: Int, channels: Int) -> Data {
+        var data = Data()
+        let fileSize = UInt32(36 + pcmData.count)
+        let sampleRateUInt32 = UInt32(sampleRate)
+        let bitsPerSample: UInt16 = 16
+        let blockAlign: UInt16 = UInt16(channels * Int(bitsPerSample) / 8)
+        let byteRate = UInt32(sampleRate * channels * Int(bitsPerSample) / 8)
+
+        data.append("RIFF".data(using: .ascii)!)
+        data.append(Data(bytes: &fileSize, count: 4))
+        data.append("WAVE".data(using: .ascii)!)
+        data.append("fmt ".data(using: .ascii)!)
+        var chunkSize: UInt32 = 16
+        data.append(Data(bytes: &chunkSize, count: 4))
+        var audioFormat: UInt16 = 1 // PCM
+        data.append(Data(bytes: &audioFormat, count: 2))
+        var channelsUInt16 = UInt16(channels)
+        data.append(Data(bytes: &channelsUInt16, count: 2))
+        data.append(Data(bytes: &sampleRateUInt32, count: 4))
+        data.append(Data(bytes: &byteRate, count: 4))
+        data.append(Data(bytes: &blockAlign, count: 2))
+        data.append(Data(bytes: &bitsPerSample, count: 2))
+        data.append("data".data(using: .ascii)!)
+        var dataSize = UInt32(pcmData.count)
+        data.append(Data(bytes: &dataSize, count: 4))
+        data.append(pcmData)
+
+        return data
+    }
+    ```
+  - Use this function to wrap the audio data received from Gemini before playing it with `AVAudioPlayer`.
+
+## 3. JSON Message Structure
+
+### Initial Setup Message
+- After the WebSocket connection is established, send a setup message to configure the model and generation parameters.
+
+  ```json
+  {
+    "setup": {
+      "model": "models/gemini-2.5-flash-native-audio-preview-09-2025",
+      "generation_config": {
+        "response_modalities": ["AUDIO"],
+        "speech_config": {
+          "voice_config": {
+            "prebuilt_voice_config": {
+              "voice_name": "Aoede"
+            }
+          }
+        }
+      },
+      "system_instruction": {
+        "parts": [
+          {"text": "You are a helpful AI assistant. Respond naturally and conversationally."}
+        ]
+      }
+    }
+  }
+  ```
+
+### Sending Audio
+- Send audio chunks in the `realtime_input` message.
+
+  ```json
+  {
+    "realtime_input": {
+      "media_chunks": [
+        {
+          "mime_type": "audio/pcm;rate=16000",
+          "data": "BASE64_ENCODED_AUDIO_DATA"
+        }
+      ]
+    }
+  }
+  ```
+
+### Receiving Messages
+- **Setup Completion:** The server will send a `{"setupComplete": {}}` message to indicate that it's ready to receive audio.
+- **Audio and Text:** The server will send `serverContent` messages containing `modelTurn` with `parts` that can be either text or audio data.
+
+## 4. Common Pitfalls and Solutions in Xcode/iOS
+
+- **`AVAudioPlayer` Error `1954115647`:** As mentioned, this is due to a missing audio file header. The solution is to prepend a WAV header to the raw PCM data from Gemini.
+- **Audio Format Mismatch:** Ensure the audio sent to Gemini is exactly 16kHz, 16-bit mono PCM. Use `AVAudioConverter` to handle this conversion robustly.
+- **WebSocket Disconnects:**
+  - **Idle Timeouts:** Use `sendPing` to prevent the connection from being closed due to inactivity.
+  - **Network Changes:** Implement a reachability monitor to detect network changes and trigger a reconnection.
+- **UI Freezing:** Perform all WebSocket and audio processing on background threads to avoid blocking the main thread. Use `DispatchQueue` or `Task` for this.
+- **Authentication Errors:** Double-check that the API key is correct and has the necessary permissions.
+- **Background Audio:** To allow audio streaming to continue when the app is in the background, enable the "Audio, AirPlay, and Picture in Picture" background mode in your project's capabilities.

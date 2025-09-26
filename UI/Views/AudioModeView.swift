@@ -1,8 +1,12 @@
 import SwiftUI
 import AVFoundation
 import Combine
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - Mode 1: Native Audio UI
+@available(iOS 17.0, macOS 12.0, *)
 struct AudioModeView: View {
     @StateObject private var viewModel = AudioModeViewModel()
     @State private var isRecording = false
@@ -44,12 +48,17 @@ struct AudioModeView: View {
                     .padding(.horizontal)
                 
                 // Status text
-                Text(viewModel.statusMessage)
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-                    .animation(.easeInOut, value: viewModel.statusMessage)
+                switch viewModel.connectionState {
+                case .disconnected:
+                    Text("Tap to start private conversation")
+                case .connecting:
+                    Text("Connecting to private Gemini Live...")
+                case .connected:
+                    Text("Listening... (Zero data retention active)")
+                case .error(let message):
+                    Text("Error: \(message)")
+                }
+                
                 
                 // Recording button
                 Button(action: toggleRecording) {
@@ -69,8 +78,8 @@ struct AudioModeView: View {
                 // Session info
                 if let session = viewModel.currentSession {
                     VStack(alignment: .leading, spacing: 8) {
-                        Label("Session: \\(session.id.prefix(8))...", systemImage: "tag")
-                        Label("Duration: \\(formatDuration(session.duration))", systemImage: "timer")
+                        Label("Session: \(session.id.prefix(8))...", systemImage: "tag")
+                        Label("Duration: \(formatDuration(session.duration))", systemImage: "timer")
                         Label("Privacy: Zero Retention", systemImage: "eye.slash")
                     }
                     .font(.caption)
@@ -114,9 +123,11 @@ struct AudioModeView: View {
         }
         isRecording.toggle()
         
-        // Haptic feedback
+        // Haptic feedback (iOS only)
+        #if os(iOS)
         let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
         impactFeedback.impactOccurred()
+        #endif
     }
     
     private func formatDuration(_ seconds: TimeInterval) -> String {
@@ -128,6 +139,7 @@ struct AudioModeView: View {
 }
 
 // MARK: - Audio Waveform Visualization
+@available(iOS 17.0, macOS 12.0, *)
 struct AudioWaveformView: View {
     let audioLevel: CGFloat
     @State private var bars: [CGFloat] = Array(repeating: 0.2, count: 30)
@@ -177,19 +189,94 @@ struct AudioWaveformView: View {
 
 // MARK: - Audio Mode View Model
 class AudioModeViewModel: ObservableObject {
-    @Published var statusMessage = "Tap to start private conversation"
+    enum ConnectionState {
+        case disconnected
+        case connecting
+        case connected
+        case error(String)
+    }
+
+    @Published var connectionState: ConnectionState = .disconnected
     @Published var currentSession: AudioSessionInfo?
     let audioLevelPublisher = PassthroughSubject<CGFloat, Never>()
     
     private var audioSession: AudioSession?
     private let dbManager = ObjectBoxManager.shared
     private var audioLevelTimer: Timer?
-    
-    struct AudioSessionInfo {
+    private var cancellables = Set<AnyCancellable>()
+    private var audioPlayer: AVAudioPlayer?
+
+    init() {
+        AudioSession.shared.connectionStatePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                self?.connectionState = state
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.addObserver(self, selector: #selector(handleAudioData(_:)), name: .audioSessionDidCaptureAudio, object: nil)
+    }
+
+    @objc private func handleAudioData(_ notification: Notification) {
+        if let data = notification.userInfo?["audioData"] as? Data {
+            playAudioData(data)
+        }
+    }
+
+    func playAudioData(_ data: Data) {
+        let wavData = createWAVData(from: data, sampleRate: 16000, channels: 1)
+        do {
+            audioPlayer = try AVAudioPlayer(data: wavData)
+            audioPlayer?.play()
+            print("Playing back captured audio.")
+        } catch {
+            print("Failed to play back audio: \(error.localizedDescription)")
+        }
+    }
+
+    private func createWAVData(from pcmData: Data, sampleRate: Int, channels: Int) -> Data {
+        var data = Data()
+        let fileSize = UInt32(36 + pcmData.count)
+        let sampleRateUInt32 = UInt32(sampleRate)
+        let bitsPerSample: UInt16 = 16
+        let blockAlign: UInt16 = UInt16(channels * Int(bitsPerSample) / 8)
+        let byteRate = UInt32(sampleRate * channels * Int(bitsPerSample) / 8)
+
+        data.append("RIFF".data(using: .ascii)!)
+        data.append(Data(bytes: &fileSize, count: 4))
+        data.append("WAVE".data(using: .ascii)!)
+        data.append("fmt ".data(using: .ascii)!)
+        var chunkSize: UInt32 = 16
+        data.append(Data(bytes: &chunkSize, count: 4))
+        var audioFormat: UInt16 = 1 // PCM
+        data.append(Data(bytes: &audioFormat, count: 2))
+        var channelsUInt16 = UInt16(channels)
+        data.append(Data(bytes: &channelsUInt16, count: 2))
+        data.append(Data(bytes: &sampleRateUInt32, count: 4))
+        data.append(Data(bytes: &byteRate, count: 4))
+        data.append(Data(bytes: &blockAlign, count: 2))
+        data.append(Data(bytes: &bitsPerSample, count: 2))
+        data.append("data".data(using: .ascii)!)
+        var dataSize = UInt32(pcmData.count)
+        data.append(Data(bytes: &dataSize, count: 4))
+        data.append(pcmData)
+
+        return data
+    }
+
+    class AudioSessionInfo: ObservableObject {
         let id: String
         let startTime: Date
-        var duration: TimeInterval {
-            Date().timeIntervalSince(startTime)
+        @Published var duration: TimeInterval
+
+        init(id: String, startTime: Date) {
+            self.id = id
+            self.startTime = startTime
+            self.duration = 0
+        }
+
+        func updateDuration() {
+            duration = Date().timeIntervalSince(startTime)
         }
     }
     
@@ -197,16 +284,15 @@ class AudioModeViewModel: ObservableObject {
         Task {
             do {
                 // Request microphone permission
+                #if os(iOS)
                 let audioSession = AVAudioSession.sharedInstance()
                 try audioSession.setCategory(.record, mode: .voiceChat)
                 try audioSession.setActive(true)
-                
-                await MainActor.run {
-                    statusMessage = "Connecting to private Gemini Live..."
-                }
+                #endif
                 
                 // Initialize audio session with privacy config
-                self.audioSession = try await AudioSession(
+                self.audioSession = AudioSession.shared
+                try await self.audioSession?.connect(
                     projectId: VertexConfig.projectId,
                     region: VertexConfig.region,
                     endpointId: VertexConfig.audioEndpointId
@@ -215,21 +301,21 @@ class AudioModeViewModel: ObservableObject {
                 let sessionId = UUID().uuidString
                 await MainActor.run {
                     currentSession = AudioSessionInfo(id: sessionId, startTime: Date())
-                    statusMessage = "Listening... (Zero data retention active)"
+                    startDurationTimer()
                 }
-                
+
                 // Start audio level monitoring
                 startAudioLevelMonitoring()
-                
+
                 // Save session start to local DB
-                try dbManager.createSession(
-                    mode: .nativeAudio,
+                _ = dbManager.createSession(
+                    mode: "nativeAudio",
                     metadata: ["privacy": "zero_retention", "cmek": "enabled"]
                 )
                 
             } catch {
                 await MainActor.run {
-                    statusMessage = "Error: \\(error.localizedDescription)"
+                    connectionState = .error(error.localizedDescription)
                 }
             }
         }
@@ -240,8 +326,8 @@ class AudioModeViewModel: ObservableObject {
         audioSession = nil
         audioLevelTimer?.invalidate()
         audioLevelTimer = nil
-        
-        statusMessage = "Session ended (all data cleared)"
+        durationTimer?.invalidate()
+        durationTimer = nil
         
         // Clear audio buffers immediately
         clearAudioBuffers()
@@ -250,6 +336,7 @@ class AudioModeViewModel: ObservableObject {
     func pauseSession() {
         audioSession?.pause()
         statusMessage = "Session paused"
+        durationTimer?.invalidate()
     }
     
     func clearLocalSession() {
@@ -261,6 +348,13 @@ class AudioModeViewModel: ObservableObject {
         statusMessage = "Local session data cleared"
     }
     
+    private var durationTimer: Timer?
+    private func startDurationTimer() {
+        durationTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            self?.currentSession?.updateDuration()
+        }
+    }
+
     private func startAudioLevelMonitoring() {
         audioLevelTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
             // Simulate audio level (replace with actual audio meter)
@@ -280,6 +374,7 @@ class AudioModeViewModel: ObservableObject {
 }
 
 // MARK: - Privacy Info Sheet
+@available(iOS 17.0, macOS 12.0, *)
 struct PrivacyInfoSheet: View {
     enum Mode {
         case audio, voice, text
@@ -341,9 +436,11 @@ struct PrivacyInfoSheet: View {
                 .padding()
             }
             .navigationTitle("Privacy Information")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .primaryAction) {
                     Button("Done") { dismiss() }
                 }
             }
@@ -378,6 +475,7 @@ struct PrivacyInfoSheet: View {
     }
 }
 
+@available(iOS 17.0, macOS 11.0, *)
 struct PrivacyRow: View {
     let icon: String
     let text: String
