@@ -4,7 +4,8 @@ import PackageDescription
 let package = Package(
     name: "JarvisVertexAI",
     platforms: [
-        .iOS(.v17)
+        .iOS(.v17),
+        .macOS(.v10_15)
     ],
     products: [
         .library(
@@ -13,17 +14,12 @@ let package = Package(
         ),
     ],
     dependencies: [
-        // ObjectBox for local database
-        .package(
-            url: "https://github.com/objectbox/objectbox-swift.git",
-            from: "4.0.0"
-        ),
+        // ObjectBox for local database (temporarily disabled)
+        // .package(
+        //     url: "https://github.com/objectbox/objectbox-swift.git",
+        //     from: "4.0.0"
+        // ),
         
-        // Google Cloud SDK for Vertex AI
-        .package(
-            url: "https://github.com/googleapis/google-cloud-swift.git",
-            from: "1.0.0"
-        ),
         
         // Alamofire for networking (optional, for better control)
         .package(
@@ -53,8 +49,7 @@ let package = Package(
         .target(
             name: "JarvisVertexAI",
             dependencies: [
-                .product(name: "ObjectBox", package: "objectbox-swift"),
-                .product(name: "GoogleCloudVertexAI", package: "google-cloud-swift"),
+                // .product(name: "ObjectBox", package: "objectbox-swift"),
                 .product(name: "Alamofire", package: "Alamofire"),
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
                 .product(name: "CryptoSwift", package: "CryptoSwift"),
@@ -67,17 +62,10 @@ let package = Package(
                 "Package.swift",
                 "Info.plist"
             ],
-            resources: [
-                .process("Resources")
-            ],
             swiftSettings: [
                 .define("PRIVACY_MODE"),
                 .define("LOCAL_ONLY_DB"),
-                .define("PHI_REDACTION"),
-                .unsafeFlags([
-                    "-enable-strict-concurrency=complete",
-                    "-warn-concurrency"
-                ])
+                .define("PHI_REDACTION")
             ]
         ),
         

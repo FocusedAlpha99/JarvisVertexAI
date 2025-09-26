@@ -70,11 +70,11 @@ final class LocalSTTTTS: NSObject {
         SFSpeechRecognizer.requestAuthorization { status in
             switch status {
             case .authorized:
-                print("✅ Speech recognition authorized")
+                print("✅ Speech recognition permission granted")
             case .denied:
-                print("❌ Speech recognition denied")
+                print("❌ Speech recognition permission denied")
             case .restricted:
-                print("⚠️ Speech recognition restricted")
+                print("⚠️ Speech recognition permission restricted")
             case .notDetermined:
                 print("❓ Speech recognition not determined")
             @unknown default:
@@ -82,13 +82,17 @@ final class LocalSTTTTS: NSObject {
             }
         }
 
+        #if os(iOS)
         AVAudioSession.sharedInstance().requestRecordPermission { granted in
             if granted {
-                print("✅ Microphone access granted")
+                print("✅ Microphone permission granted")
             } else {
-                print("❌ Microphone access denied")
+                print("❌ Microphone permission denied")
             }
         }
+        #else
+        print("✅ Microphone permission assumed on macOS")
+        #endif
     }
 
     // MARK: - Speech Recognition (STT)
@@ -102,10 +106,12 @@ final class LocalSTTTTS: NSObject {
             throw LocalSTTError.recognizerNotAvailable
         }
 
-        // Configure audio session
+        // Configure audio session (iOS only)
+        #if os(iOS)
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(.playAndRecord, mode: .measurement, options: .defaultToSpeaker)
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        #endif
 
         // Create recognition request
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
@@ -117,7 +123,9 @@ final class LocalSTTTTS: NSObject {
         // Configure for on-device recognition
         recognitionRequest.shouldReportPartialResults = true
         recognitionRequest.requiresOnDeviceRecognition = true // CRITICAL: Force on-device
-        recognitionRequest.addsPunctuation = true
+        if #available(macOS 13.0, iOS 16.0, *) {
+            recognitionRequest.addsPunctuation = true
+        }
         recognitionRequest.contextualStrings = ["Jarvis", "privacy", "HIPAA", "PHI"]
 
         // Start recognition task
@@ -150,7 +158,7 @@ final class LocalSTTTTS: NSObject {
             ]
         )
 
-        print("🎤 Local STT started (100% on-device)")
+        print("🎤 Local STT started (100% on-device recognition)")
     }
 
     func stopListening() {
@@ -179,12 +187,12 @@ final class LocalSTTTTS: NSObject {
             ObjectBoxManager.shared.endSession(sessionId)
         }
 
-        print("🛑 Local STT stopped")
+        print("🛑 Local STT stopped and session ended")
     }
 
     private func handleRecognitionResult(_ result: SFSpeechRecognitionResult?, error: Error?) {
         if let error = error {
-            print("❌ Recognition error: \(error)")
+            print("❌ Speech recognition error: \(error)")
             stopListening()
             return
         }
@@ -251,7 +259,7 @@ final class LocalSTTTTS: NSObject {
 
     func processTextOnly(_ text: String) async -> String? {
         guard !projectId.isEmpty else {
-            print("❌ Project ID not configured")
+            print("❌ Project ID not configured for Vertex AI API")
             return nil
         }
 
@@ -263,10 +271,21 @@ final class LocalSTTTTS: NSObject {
 
         guard let url = URL(string: urlString) else { return nil }
 
+        // Get fresh access token with automatic refresh
+        do {
+            let token = try await AccessTokenProvider.shared.getAccessTokenWithRetry()
+            return await performAPIRequest(url: url, text: safeText, token: token)
+        } catch {
+            print("❌ Failed to get access token for Vertex AI: \(error)")
+            return nil
+        }
+    }
+
+    private func performAPIRequest(url: URL, text: String, token: String) async -> String? {
         // Prepare request
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         // Build privacy-focused request body
@@ -297,37 +316,69 @@ final class LocalSTTTTS: NSObject {
         guard let httpBody = try? JSONSerialization.data(withJSONObject: requestBody) else { return nil }
         request.httpBody = httpBody
 
-        // Make request
+        // Make request with 401 retry logic
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
 
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
-                print("❌ Gemini API error: \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("❌ Invalid response type")
                 return nil
             }
 
-            // Parse response
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let candidates = json["candidates"] as? [[String: Any]],
-                  let firstCandidate = candidates.first,
-                  let content = firstCandidate["content"] as? [String: Any],
-                  let parts = content["parts"] as? [[String: Any]],
-                  let firstPart = parts.first,
-                  let responseText = firstPart["text"] as? String else {
+            // Handle 401 authentication errors with token refresh
+            if httpResponse.statusCode == 401 {
+                print("⚠️ 401 Authentication error detected - attempting token refresh...")
+                do {
+                    let freshToken = try await AccessTokenProvider.shared.getAccessTokenWithRetry()
+                    // Retry with fresh token
+                    request.setValue("Bearer \(freshToken)", forHTTPHeaderField: "Authorization")
+                    let (retryData, retryResponse) = try await URLSession.shared.data(for: request)
+
+                    guard let retryHttpResponse = retryResponse as? HTTPURLResponse,
+                          retryHttpResponse.statusCode == 200 else {
+                        let retryStatusCode = (retryResponse as? HTTPURLResponse)?.statusCode ?? 0
+                        print("❌ Gemini API error after token refresh retry: HTTP \(retryStatusCode)")
+                        return nil
+                    }
+
+                    return parseGeminiResponse(retryData)
+
+                } catch {
+                    print("❌ Token refresh failed during API retry: \(error)")
+                    return nil
+                }
+            }
+
+            guard httpResponse.statusCode == 200 else {
+                print("❌ Gemini API error: HTTP \(httpResponse.statusCode)")
                 return nil
             }
 
-            // Redact any PHI in response
-            let safeResponse = PHIRedactor.shared.redactPHI(from: responseText)
-
-            print("✅ Gemini text response received (PHI redacted)")
-            return safeResponse
+            return parseGeminiResponse(data)
 
         } catch {
-            print("❌ Network error: \(error)")
+            print("❌ Network error during Gemini API call: \(error)")
             return nil
         }
+    }
+
+    private func parseGeminiResponse(_ data: Data) -> String? {
+        // Parse response
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let candidates = json["candidates"] as? [[String: Any]],
+              let firstCandidate = candidates.first,
+              let content = firstCandidate["content"] as? [String: Any],
+              let parts = content["parts"] as? [[String: Any]],
+              let firstPart = parts.first,
+              let responseText = firstPart["text"] as? String else {
+            return nil
+        }
+
+        // Redact any PHI in response
+        let safeResponse = PHIRedactor.shared.redactPHI(from: responseText)
+
+        print("✅ Gemini text response received successfully (PHI redacted)")
+        return safeResponse
     }
 
     // MARK: - Speech Synthesis (TTS)
@@ -346,7 +397,7 @@ final class LocalSTTTTS: NSObject {
         // Speak
         synthesizer.speak(utterance)
 
-        print("🔊 Speaking response (local TTS)")
+        print("🔊 Speaking response using local TTS")
     }
 
     func stopSpeaking() {
@@ -378,10 +429,12 @@ final class LocalSTTTTS: NSObject {
         ]
     }
 
-    // MARK: - Authentication
+    // MARK: - Authentication (Legacy Support)
 
+    /// Legacy method for backwards compatibility
     func setAccessToken(_ token: String) {
         self.accessToken = token
+        print("⚠️ Using legacy setAccessToken method - consider migrating to AccessTokenProvider")
     }
 }
 

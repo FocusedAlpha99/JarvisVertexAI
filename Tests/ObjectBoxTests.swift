@@ -108,7 +108,7 @@ final class ObjectBoxTests: XCTestCase {
     
     func testPHIRedactionInTranscripts() throws {
         let sessionId = try dbManager.createSession(mode: .voiceChatLocal, metadata: [:])
-        let phiRedactor = PHIRedactor()
+        let phiRedactor = PHIRedactor.shared
         
         // Text with PHI
         let textWithPHI = "My SSN is 123-45-6789 and phone is 555-123-4567"

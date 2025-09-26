@@ -13,3 +13,9 @@
 // All ObjectBox implementation is commented out to avoid compilation issues
 // See SimpleDataManager.swift for the current implementation
 */
+
+import Foundation
+
+// MARK: - ObjectBoxManager Typealias
+// This redirects all ObjectBoxManager calls to SimpleDataManager
+typealias ObjectBoxManager = SimpleDataManager

@@ -7,24 +7,35 @@ import UIKit
 @main
 @available(iOS 17.0, macOS 13.0, *)
 struct JarvisVertexAIApp: App {
-    @StateObject private var appCoordinator = AppCoordinator()
+    @StateObject private var appCoordinator = {
+        print("🚨 DEBUG: AppCoordinator being initialized")
+        return AppCoordinator()
+    }()
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("privacyMode") private var privacyMode = true
     @AppStorage("selectedMode") private var selectedMode = AppCoordinator.ConversationMode.voiceChatLocal
     
     init() {
+        print("🚨 DEBUG: JarvisVertexAIApp init() called")
+        // Initialize logging system first
+        initializeLogging()
+
         // Initialize data manager (SimpleDataManager auto-initializes)
-        // ObjectBoxManager.shared.initialize() // Disabled for now
+        // SimpleDataManager.shared.initialize() // Disabled for now
 
         // Configure privacy settings
         configurePrivacySettings()
 
         // Setup appearance
         setupAppearance()
+
+        // Try to propagate any available access token to services
+        AppCoordinator.propagateAccessTokenToServices()
     }
     
     var body: some Scene {
-        WindowGroup {
+        print("🚨 DEBUG: JarvisVertexAIApp body computed property called")
+        return WindowGroup {
             ContentView()
                 .environmentObject(appCoordinator)
                 .onAppear {
@@ -39,17 +50,25 @@ struct JarvisVertexAIApp: App {
         }
     }
     
+    private func initializeLogging() {
+        // Initialize logging system
+        print("✅ JarvisVertexAI app startup initiated")
+        print("✅ Logging system initialized")
+    }
+
     private func configurePrivacySettings() {
         // Disable analytics
         UserDefaults.standard.set(false, forKey: "analytics_enabled")
-        
+
         // Disable crash reporting
         UserDefaults.standard.set(false, forKey: "crash_reporting_enabled")
-        
+
         // Set privacy flags
         UserDefaults.standard.set(true, forKey: "phi_redaction_enabled")
         UserDefaults.standard.set(true, forKey: "local_only_mode")
         UserDefaults.standard.set(false, forKey: "cloud_sync_enabled")
+
+        print("✅ Privacy settings configured: analytics disabled, local-only mode enabled")
     }
     
     private func setupAppearance() {
@@ -74,20 +93,25 @@ struct JarvisVertexAIApp: App {
     }
     
     private func handleScenePhaseChange(_ phase: ScenePhase) {
+        print("ℹ️ Scene phase changed to: \(phase)")
+
         switch phase {
         case .active:
+            print("✅ App became active - resuming operations")
             appCoordinator.resumeActiveMode()
-            
+
         case .inactive:
+            print("ℹ️ App became inactive - pausing operations (no termination)")
             appCoordinator.pauseActiveMode()
-            
+
         case .background:
+            print("ℹ️ App entered background - clearing sensitive data")
             // Clear sensitive data from memory
             appCoordinator.clearSensitiveData()
-            
+
             // Schedule cleanup task
             scheduleBackgroundCleanup()
-            
+
         @unknown default:
             break
         }
@@ -95,52 +119,17 @@ struct JarvisVertexAIApp: App {
     
     private func scheduleBackgroundCleanup() {
         // Clean up old data when app goes to background
+        print("🧹 Scheduling background cleanup and maintenance")
+
         Task {
-            await ObjectBoxManager.shared.performMaintenance()
+            await SimpleDataManager.shared.performMaintenance()
+
+            // Background maintenance completed
+            print("🧹 Background maintenance completed")
         }
     }
 }
 
-// MARK: - Main Content View
-@available(iOS 17.0, macOS 13.0, *)
-struct ContentView: View {
-    @EnvironmentObject var coordinator: AppCoordinator
-    @State private var showSettings = false
-    @State private var showPrivacyDashboard = false
-    
-    var body: some View {
-        TabView(selection: $coordinator.selectedMode) {
-            // Mode 1: Native Audio
-            AudioModeView()
-                .tabItem {
-                    Label("Audio", systemImage: "waveform")
-                }
-                .tag(AppCoordinator.ConversationMode.nativeAudio)
-            
-            // Mode 2: Voice Chat Local
-            VoiceChatLocalView()
-                .tabItem {
-                    Label("Voice", systemImage: "mic.circle")
-                }
-                .tag(AppCoordinator.ConversationMode.voiceChatLocal)
-            
-            // Mode 3: Text + Multimodal
-            TextMultimodalView()
-                .tabItem {
-                    Label("Text", systemImage: "keyboard")
-                }
-                .tag(AppCoordinator.ConversationMode.textMultimodal)
-            
-            // Privacy Dashboard
-            PrivacyDashboardView()
-                .tabItem {
-                    Label("Privacy", systemImage: "shield.checkmark")
-                }
-                .tag(AppCoordinator.ConversationMode.privacy)
-        }
-        .accentColor(.blue)
-    }
-}
 
 // MARK: - App Coordinator
 class AppCoordinator: ObservableObject {
@@ -149,30 +138,39 @@ class AppCoordinator: ObservableObject {
     @Published var privacyStatus = PrivacyStatus()
     
     private var activeSession: SessionProtocol?
-    private let dbManager = ObjectBoxManager.shared
+    private let dbManager = SimpleDataManager.shared
     
     enum ConversationMode: String, CaseIterable {
         case nativeAudio = "Native Audio"
         case voiceChatLocal = "Voice Local"
         case textMultimodal = "Text + Files"
-        case privacy = "Privacy"
-        
+
         var icon: String {
             switch self {
             case .nativeAudio: return "waveform"
             case .voiceChatLocal: return "mic.circle"
             case .textMultimodal: return "keyboard"
-            case .privacy: return "shield.checkmark"
             }
         }
-        
+
         var privacyLevel: String {
             switch self {
             case .nativeAudio: return "Zero Retention + CMEK"
             case .voiceChatLocal: return "On-Device STT/TTS"
             case .textMultimodal: return "Ephemeral Files"
-            case .privacy: return "Management"
             }
+        }
+    }
+
+    // MARK: - Auth Token Propagation
+    /// Reads an access token (env or Keychain) and applies it to shared services that require it.
+    static func propagateAccessTokenToServices() {
+        if let token = AccessTokenProvider.currentToken() {
+            LocalSTTTTS.shared.setAccessToken(token)
+            MultimodalChat.shared.setAccessToken(token)
+            print("🔐 Access token propagated to services successfully")
+        } else {
+            print("⚠️ No access token found - authentication required for API services")
         }
     }
     
@@ -190,17 +188,14 @@ class AppCoordinator: ObservableObject {
         switch selectedMode {
         case .nativeAudio:
             activeSession = AudioSession.shared
-            
+
         case .voiceChatLocal:
             Task {
                 activeSession = LocalSTTTTS.shared
             }
-            
+
         case .textMultimodal:
             activeSession = MultimodalChat.shared
-            
-        case .privacy:
-            break
         }
     }
     
@@ -266,7 +261,7 @@ struct PrivacyDashboardView: View {
                             .font(.headline)
                             .padding(.horizontal)
                         
-                        ForEach(AppCoordinator.ConversationMode.allCases.filter { $0 != .privacy }, id: \.self) { mode in
+                        ForEach(AppCoordinator.ConversationMode.allCases, id: \.self) { mode in
                             ModePrivacyRow(mode: mode)
                         }
                     }
@@ -336,7 +331,7 @@ struct PrivacyDashboardView: View {
     
     private func deleteAllData() {
         Task {
-            try? await ObjectBoxManager.shared.deleteAllData()
+            try? await SimpleDataManager.shared.deleteAllData()
             coordinator.clearSensitiveData()
         }
     }
@@ -502,7 +497,7 @@ struct StorageInfoView: View {
     
     private func loadStorageInfo() {
         Task {
-            if let info = try? await ObjectBoxManager.shared.getStorageInfo() {
+            if let info = try? await SimpleDataManager.shared.getStorageInfo() {
                 storageInfo.totalSize = info.totalSize
                 storageInfo.sessionCount = info.sessionCount
                 storageInfo.transcriptCount = info.transcriptCount
@@ -643,7 +638,7 @@ struct DataExportView: View {
         isExporting = true
         
         Task {
-            let exportData = await ObjectBoxManager.shared.exportAllData(
+            let exportData = await SimpleDataManager.shared.exportAllData(
                 format: exportFormat.rawValue,
                 includeMetadata: includeMetadata
             )
@@ -730,12 +725,4 @@ extension MultimodalChat: SessionProtocol {
     func terminate() {
         // Terminate multimodal session
     }
-}
-
-// MARK: - Vertex Configuration
-struct VertexConfig {
-    static let projectId = ProcessInfo.processInfo.environment["VERTEX_PROJECT_ID"] ?? "your-project-id"
-    static let region = ProcessInfo.processInfo.environment["VERTEX_REGION"] ?? "us-central1"
-    static let audioEndpointId = ProcessInfo.processInfo.environment["VERTEX_AUDIO_ENDPOINT"] ?? "gemini-live-audio"
-    static let cmekKeyPath = ProcessInfo.processInfo.environment["VERTEX_CMEK_KEY"] ?? ""
 }

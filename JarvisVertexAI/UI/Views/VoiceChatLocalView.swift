@@ -1,6 +1,7 @@
 import SwiftUI
 import Speech
 import AVFoundation
+import Combine
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -198,6 +199,20 @@ struct VoiceChatLocalView: View {
                 Text("Settings not available")
             }
         }
+        .alert("Voice Chat Error", isPresented: $viewModel.showErrorAlert) {
+            Button("OK") {
+                viewModel.showErrorAlert = false
+            }
+            Button("Settings") {
+                #if os(iOS)
+                if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(settingsUrl)
+                }
+                #endif
+            }
+        } message: {
+            Text(viewModel.errorMessage)
+        }
         .onAppear {
             viewModel.requestPermissions()
         }
@@ -320,25 +335,70 @@ class VoiceChatLocalViewModel: ObservableObject {
     @Published var isProcessing = false
     @Published var animationScale: CGFloat = 1.0
     
-    private var sttManager: LocalSTTTTS?
-    private let dbManager = ObjectBoxManager.shared
+    private let dbManager = SimpleDataManager.shared
     private let phiRedactor = PHIRedactor.shared
-    private var speechRecognizer: SFSpeechRecognizer?
-    private var recognitionTask: SFSpeechRecognitionTask?
-    private var audioEngine: AVAudioEngine?
+    private var cancellables = Set<AnyCancellable>()
+
+    @Published var errorMessage = ""
+    @Published var showErrorAlert = false
+    @Published var permissionStatus: PermissionStatus = .notDetermined
     
     init() {
-        setupSTT()
         loadRecentMessages()
+        setupNotifications()
     }
     
-    private func setupSTT() {
-        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
-        audioEngine = AVAudioEngine()
-        
-        Task {
-            sttManager = LocalSTTTTS.shared
-        }
+    private func setupNotifications() {
+        // Listen to Gemini Live API responses
+        NotificationCenter.default.publisher(for: .voiceChatTranscript)
+            .sink { notification in
+                if let userInfo = notification.userInfo,
+                   let text = userInfo["text"] as? String,
+                   let speaker = userInfo["speaker"] as? String {
+
+                    let message = ChatMessage(
+                        id: UUID().uuidString,
+                        content: text,
+                        isUser: speaker == "user",
+                        timestamp: Date(),
+                        wasRedacted: false
+                    )
+
+                    DispatchQueue.main.async {
+                        self.messages.append(message)
+
+                        if !message.isUser {
+                            self.isProcessing = false
+                            self.ttsActive = true
+                        }
+                    }
+                }
+            }
+            .store(in: &cancellables)
+
+        // Listen to audio level updates
+        NotificationCenter.default.publisher(for: .voiceChatAudioLevel)
+            .sink { notification in
+                if let userInfo = notification.userInfo,
+                   let speaking = userInfo["speaking"] as? Bool {
+                    DispatchQueue.main.async {
+                        self.sttActive = speaking
+                        if speaking {
+                            self.isProcessing = true
+                        }
+                    }
+                }
+            }
+            .store(in: &cancellables)
+
+        // Listen to audio responses
+        NotificationCenter.default.publisher(for: .voiceChatAudioResponse)
+            .sink { _ in
+                DispatchQueue.main.async {
+                    self.ttsActive = false
+                }
+            }
+            .store(in: &cancellables)
     }
     
     private func loadRecentMessages() {
@@ -376,156 +436,72 @@ class VoiceChatLocalViewModel: ObservableObject {
     }
     
     func startListening() {
-        guard let recognizer = speechRecognizer,
-              recognizer.isAvailable else { return }
-        
-        do {
-            // Configure audio session
-            #if os(iOS)
-            let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.record, mode: .measurement)
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-            #endif
-            
-            // Start recognition
-            let request = SFSpeechAudioBufferRecognitionRequest()
-            request.shouldReportPartialResults = true
-            request.requiresOnDeviceRecognition = true // Force on-device only
-            
-            let inputNode = audioEngine?.inputNode
-            guard let inputNode = inputNode else { return }
-            
-            recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-                guard let self = self else { return }
-                
-                if let result = result {
-                    DispatchQueue.main.async {
-                        self.currentTranscription = result.bestTranscription.formattedString
-                        self.sttActive = true
-                    }
-                    
-                    if result.isFinal {
-                        self.processTranscription(result.bestTranscription.formattedString)
-                    }
+        Task {
+            do {
+                // Check permissions first
+                try await checkPermissions()
+
+                // Use Local Speech Recognition for STT
+                LocalSTTTTS.shared.startLocalSpeechRecognition()
+
+                DispatchQueue.main.async {
+                    self.sttActive = true
+                    self.animationScale = 1.5
                 }
-                
-                if error != nil {
-                    self.stopListening()
+
+                print("🎤 Voice Chat Local: STT started")
+
+            } catch {
+                DispatchQueue.main.async {
+                    self.handleError(error)
                 }
+                print("Voice Chat Local Error: \(error)")
             }
-            
-            let recordingFormat = inputNode.outputFormat(forBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-                request.append(buffer)
+        }
+    }
+
+    private func checkPermissions() async throws {
+        // Check microphone permission
+        #if os(iOS)
+        let microphoneStatus = await withCheckedContinuation { continuation in
+            AVAudioSession.sharedInstance().requestRecordPermission { granted in
+                continuation.resume(returning: granted)
             }
-            
-            audioEngine?.prepare()
-            try audioEngine?.start()
-            
-            DispatchQueue.main.async {
-                self.sttActive = true
-                self.animationScale = 1.5
+        }
+        if !microphoneStatus {
+            throw VoiceChatError.microphonePermissionDenied
+        }
+        #endif
+
+        // Check speech recognition permission
+        let speechStatus = await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { status in
+                continuation.resume(returning: status == .authorized)
             }
-            
-        } catch {
-            print("STT Error: \\(error)")
+        }
+
+        if !speechStatus {
+            throw VoiceChatError.speechRecognitionPermissionDenied
         }
     }
     
     func stopListening() {
-        audioEngine?.stop()
-        audioEngine?.inputNode.removeTap(onBus: 0)
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        
+        LocalSTTTTS.shared.stopLocalSpeechRecognition()
+
         DispatchQueue.main.async {
             self.sttActive = false
             self.animationScale = 1.0
         }
     }
     
-    private func processTranscription(_ text: String) {
-        Task {
-            await MainActor.run {
-                isProcessing = true
-                currentTranscription = ""
-            }
-            
-            // Redact PHI before sending
-            let redactedText = phiRedactor.redactPHI(from: text)
-            let wasRedacted = redactedText != text
-            
-            // Add user message
-            let userMessage = ChatMessage(
-                id: UUID().uuidString,
-                content: text,
-                isUser: true,
-                timestamp: Date(),
-                wasRedacted: wasRedacted
-            )
-            
-            await MainActor.run {
-                messages.append(userMessage)
-            }
-            
-            // Save to local DB
-            try? dbManager.addTranscript(
-                sessionId: getCurrentSessionId(),
-                speaker: "user",
-                text: text,
-                metadata: ["redacted": wasRedacted, "original_length": text.count]
-            )
-            
-            // Send redacted text to Gemini (text-only)
-            if let response = await sttManager?.processTextOnly(redactedText) {
-                let assistantMessage = ChatMessage(
-                    id: UUID().uuidString,
-                    content: response,
-                    isUser: false,
-                    timestamp: Date(),
-                    wasRedacted: false
-                )
-                
-                await MainActor.run {
-                    messages.append(assistantMessage)
-                    isProcessing = false
-                    
-                    // Trigger TTS
-                    speakResponse(response)
-                }
-                
-                // Save assistant response
-                try? dbManager.addTranscript(
-                    sessionId: getCurrentSessionId(),
-                    speaker: "assistant",
-                    text: response,
-                    metadata: [:]
-                )
-            }
-        }
-    }
     
-    private func speakResponse(_ text: String) {
-        Task {
-            await MainActor.run {
-                ttsActive = true
-            }
-            
-            await sttManager?.speak(text: text)
-            
-            await MainActor.run {
-                ttsActive = false
-            }
-        }
-    }
     
     func clearConversation() {
         messages.removeAll()
         currentTranscription = ""
-        
-        // Clear from local DB
-        let sessionId = getCurrentSessionId()
-        try? dbManager.deleteSession(sessionId: sessionId)
+
+        // Terminate current session
+        LocalSTTTTS.shared.terminateVoiceSession()
     }
     
     func exportTranscript() {
@@ -563,10 +539,129 @@ class VoiceChatLocalViewModel: ObservableObject {
         print("Export: \(exportText)")
         #endif
     }
-    
-    private func getCurrentSessionId() -> String {
-        // Get or create current session
-        return "voice_local_\(Date().timeIntervalSince1970)"
+
+    // MARK: - Error Handling
+
+    func handleError(_ error: Error) {
+        DispatchQueue.main.async {
+            self.sttActive = false
+            self.ttsActive = false
+            self.isProcessing = false
+            self.animationScale = 1.0
+
+            if let voiceChatError = error as? VoiceChatError {
+                self.errorMessage = voiceChatError.localizedDescription
+            } else {
+                self.errorMessage = error.localizedDescription
+            }
+
+            self.showErrorAlert = true
+            print("❌ Voice Chat Error: \(self.errorMessage)")
+        }
+    }
+
+    private func updatePermissionStatus() {
+        Task {
+            let micStatus = await checkMicrophonePermission()
+            let speechStatus = await checkSpeechRecognitionPermission()
+
+            await MainActor.run {
+                if micStatus && speechStatus {
+                    self.permissionStatus = .authorized
+                } else {
+                    self.permissionStatus = .denied
+                }
+            }
+        }
+    }
+
+    private func checkMicrophonePermission() async -> Bool {
+        #if os(iOS)
+        let audioSession = AVAudioSession.sharedInstance()
+        switch audioSession.recordPermission {
+        case .granted:
+            return true
+        case .denied, .undetermined:
+            return await withCheckedContinuation { continuation in
+                audioSession.requestRecordPermission { granted in
+                    continuation.resume(returning: granted)
+                }
+            }
+        @unknown default:
+            return false
+        }
+        #else
+        return true // macOS handles permissions differently
+        #endif
+    }
+
+    private func checkSpeechRecognitionPermission() async -> Bool {
+        return await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { status in
+                continuation.resume(returning: status == .authorized)
+            }
+        }
+    }
+}
+
+// MARK: - Voice Chat Errors
+
+enum VoiceChatError: LocalizedError {
+    case microphonePermissionDenied
+    case speechRecognitionPermissionDenied
+    case speechRecognizerUnavailable
+    case audioEngineError(Error)
+    case networkError(Error)
+    case configurationError(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .microphonePermissionDenied:
+            return "Microphone permission is required for voice chat. Please enable it in Settings > Privacy & Security > Microphone."
+        case .speechRecognitionPermissionDenied:
+            return "Speech recognition permission is required. Please enable it in Settings > Privacy & Security > Speech Recognition."
+        case .speechRecognizerUnavailable:
+            return "Speech recognition is not available on this device."
+        case .audioEngineError(let error):
+            return "Audio engine error: \(error.localizedDescription)"
+        case .networkError(let error):
+            return "Network error: \(error.localizedDescription)"
+        case .configurationError(let message):
+            return "Configuration error: \(message)"
+        }
+    }
+}
+
+// MARK: - Permission Status
+
+enum PermissionStatus {
+    case notDetermined
+    case authorized
+    case denied
+    case restricted
+
+    var displayText: String {
+        switch self {
+        case .notDetermined:
+            return "Checking..."
+        case .authorized:
+            return "Authorized"
+        case .denied:
+            return "Denied"
+        case .restricted:
+            return "Restricted"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .notDetermined:
+            return .orange
+        case .authorized:
+            return .green
+        case .denied, .restricted:
+            return .red
+        }
     }
 }
 

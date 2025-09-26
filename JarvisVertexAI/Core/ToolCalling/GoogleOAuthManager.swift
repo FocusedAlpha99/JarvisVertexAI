@@ -373,7 +373,7 @@ class GoogleOAuthManager: NSObject, ObservableObject {
         )
         
         // Note: logAuditEvent will be implemented when ObjectBox is re-enabled
-        // try? ObjectBoxManager.shared.logAuditEvent(event)
+        // try? SimpleDataManager.shared.logAuditEvent(event)
     }
     
     private func scheduleFileDeletion(fileId: String, token: String) {

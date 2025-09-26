@@ -1,0 +1,470 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		3D1F4F2B2B1234567890ABCD /* JarvisVertexAIApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1F4F2A2B1234567890ABCD /* JarvisVertexAIApp.swift */; };
+		3D1F4F2D2B1234567890ABCD /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1F4F2C2B1234567890ABCD /* ContentView.swift */; };
+		3D1F4F2F2B1234567890ABCD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3D1F4F2E2B1234567890ABCD /* Assets.xcassets */; };
+		3D1F4F322B1234567890ABCD /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3D1F4F312B1234567890ABCD /* Preview Assets.xcassets */; };
+		3D1F4F392B1234567890ABCD /* AudioModeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1F4F382B1234567890ABCD /* AudioModeView.swift */; };
+		3D1F4F3B2B1234567890ABCD /* VoiceChatLocalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1F4F3A2B1234567890ABCD /* VoiceChatLocalView.swift */; };
+		3D1F4F3D2B1234567890ABCD /* TextMultimodalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1F4F3C2B1234567890ABCD /* TextMultimodalView.swift */; };
+		3D1F4F3F2B1234567890ABCD /* AudioSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1F4F3E2B1234567890ABCD /* AudioSession.swift */; };
+		3D1F4F412B1234567890ABCD /* LocalSTTTTS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1F4F402B1234567890ABCD /* LocalSTTTTS.swift */; };
+		E9A1B2C42C8F3A4B00123456 /* PersistentLogger.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = JarvisVertexAI/Core/Logging/PersistentLogger.swift; sourceTree = SOURCE_ROOT; };
+		3D1F4F432B1234567890ABCD /* MultimodalChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1F4F422B1234567890ABCD /* MultimodalChat.swift */; };
+		3D1F4F452B1234567890ABCD /* SimpleDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1F4F442B1234567890ABCD /* SimpleDataManager.swift */; };
+		3D1F4F472B1234567890ABCD /* PHIRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1F4F462B1234567890ABCD /* PHIRedactor.swift */; };
+		3D1F4F492B1234567890ABCD /* GoogleOAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1F4F482B1234567890ABCD /* GoogleOAuthManager.swift */; };
+		3D1F4F4D2B1234567890ABCD /* AccessTokenProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1F4F4C2B1234567890ABCD /* AccessTokenProvider.swift */; };
+		3D1F4F4F2B1234567890ABCD /* VertexConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D1F4F5A2B1234567890ABCD /* VertexConfig.swift */; };
+		/* Removed duplicate env resource entries */
+		E0ENVRSC0000000000000001 /* env.local (Config) in Resources */ = {isa = PBXBuildFile; fileRef = E0ENVRSCFIL00000000000001 /* env.local (Config) */; };
+		E9A1B2C52C8F3A4B00123456 /* PersistentLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9A1B2C42C8F3A4B00123456 /* PersistentLogger.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		3D1F4F272B1234567890ABCD /* JarvisVertexAI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JarvisVertexAI.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3D1F4F2A2B1234567890ABCD /* JarvisVertexAIApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisVertexAIApp.swift; sourceTree = "<group>"; };
+		3D1F4F2C2B1234567890ABCD /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		3D1F4F2E2B1234567890ABCD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3D1F4F312B1234567890ABCD /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		3D1F4F382B1234567890ABCD /* AudioModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioModeView.swift; sourceTree = "<group>"; };
+		3D1F4F3A2B1234567890ABCD /* VoiceChatLocalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChatLocalView.swift; sourceTree = "<group>"; };
+		3D1F4F3C2B1234567890ABCD /* TextMultimodalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextMultimodalView.swift; sourceTree = "<group>"; };
+		3D1F4F3E2B1234567890ABCD /* AudioSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSession.swift; sourceTree = "<group>"; };
+		3D1F4F402B1234567890ABCD /* LocalSTTTTS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSTTTTS.swift; sourceTree = "<group>"; };
+		3D1F4F422B1234567890ABCD /* MultimodalChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultimodalChat.swift; sourceTree = "<group>"; };
+		3D1F4F442B1234567890ABCD /* SimpleDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimpleDataManager.swift; sourceTree = "<group>"; };
+		3D1F4F462B1234567890ABCD /* PHIRedactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PHIRedactor.swift; sourceTree = "<group>"; };
+		3D1F4F482B1234567890ABCD /* GoogleOAuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleOAuthManager.swift; sourceTree = "<group>"; };
+		3D1F4F4C2B1234567890ABCD /* AccessTokenProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessTokenProvider.swift; sourceTree = "<group>"; };
+		3D1F4F4E2B1234567890ABCD /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		3D1F4F5A2B1234567890ABCD /* VertexConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VertexConfig.swift; sourceTree = "<group>"; };
+		/* Removed duplicate env file references */
+		E0ENVRSCFIL00000000000001 /* env.local (Config) */ = {isa = PBXFileReference; lastKnownFileType = text; path = Config/env.local; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		3D1F4F242B1234567890ABCD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		3D1F4F1E2B1234567890ABCD = {
+			isa = PBXGroup;
+			children = (
+				/* Removed duplicate env file refs */
+				E0ENVRSCFIL00000000000001 /* env.local (Config) */,
+				3D1F4F292B1234567890ABCD /* JarvisVertexAI */,
+				3D1F4F282B1234567890ABCD /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		3D1F4F282B1234567890ABCD /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				3D1F4F272B1234567890ABCD /* JarvisVertexAI.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		3D1F4F292B1234567890ABCD /* JarvisVertexAI */ = {
+			isa = PBXGroup;
+			children = (
+				3D1F4F2A2B1234567890ABCD /* JarvisVertexAIApp.swift */,
+				3D1F4F2C2B1234567890ABCD /* ContentView.swift */,
+				3D1F4F5A2B1234567890ABCD /* VertexConfig.swift */,
+				3D1F4F502B1234567890ABCD /* UI */,
+				3D1F4F512B1234567890ABCD /* Core */,
+				3D1F4F2E2B1234567890ABCD /* Assets.xcassets */,
+				3D1F4F4E2B1234567890ABCD /* Info.plist */,
+				3D1F4F302B1234567890ABCD /* Preview Content */,
+			);
+			path = JarvisVertexAI;
+			sourceTree = "<group>";
+		};
+		3D1F4F302B1234567890ABCD /* Preview Content */ = {
+			isa = PBXGroup;
+			children = (
+				3D1F4F312B1234567890ABCD /* Preview Assets.xcassets */,
+			);
+			path = "Preview Content";
+			sourceTree = "<group>";
+		};
+		3D1F4F502B1234567890ABCD /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				3D1F4F522B1234567890ABCD /* Views */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		3D1F4F512B1234567890ABCD /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				3D1F4F532B1234567890ABCD /* VertexAI */,
+				3D1F4F542B1234567890ABCD /* Database */,
+				3D1F4F552B1234567890ABCD /* Privacy */,
+				3D1F4F562B1234567890ABCD /* ToolCalling */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		3D1F4F522B1234567890ABCD /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				3D1F4F382B1234567890ABCD /* AudioModeView.swift */,
+				3D1F4F3A2B1234567890ABCD /* VoiceChatLocalView.swift */,
+				3D1F4F3C2B1234567890ABCD /* TextMultimodalView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		3D1F4F532B1234567890ABCD /* VertexAI */ = {
+			isa = PBXGroup;
+			children = (
+				3D1F4F3E2B1234567890ABCD /* AudioSession.swift */,
+				3D1F4F402B1234567890ABCD /* LocalSTTTTS.swift */,
+				3D1F4F422B1234567890ABCD /* MultimodalChat.swift */,
+			);
+			path = VertexAI;
+			sourceTree = "<group>";
+		};
+		3D1F4F542B1234567890ABCD /* Database */ = {
+			isa = PBXGroup;
+			children = (
+				3D1F4F442B1234567890ABCD /* SimpleDataManager.swift */,
+			);
+			path = Database;
+			sourceTree = "<group>";
+		};
+		3D1F4F552B1234567890ABCD /* Privacy */ = {
+			isa = PBXGroup;
+			children = (
+				3D1F4F462B1234567890ABCD /* PHIRedactor.swift */,
+			);
+			path = Privacy;
+			sourceTree = "<group>";
+		};
+		3D1F4F562B1234567890ABCD /* ToolCalling */ = {
+			isa = PBXGroup;
+			children = (
+				3D1F4F482B1234567890ABCD /* GoogleOAuthManager.swift */,
+			);
+			path = ToolCalling;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		3D1F4F262B1234567890ABCD /* JarvisVertexAI */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3D1F4F352B1234567890ABCD /* Build configuration list for PBXNativeTarget "JarvisVertexAI" */;
+			buildPhases = (
+				3D1F4F232B1234567890ABCD /* Sources */,
+				3D1F4F242B1234567890ABCD /* Frameworks */,
+				3D1F4F252B1234567890ABCD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = JarvisVertexAI;
+			productName = JarvisVertexAI;
+			productReference = 3D1F4F272B1234567890ABCD /* JarvisVertexAI.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3D1F4F1F2B1234567890ABCD /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					3D1F4F262B1234567890ABCD = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = 3D1F4F222B1234567890ABCD /* Build configuration list for PBXProject "JarvisVertexAI" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 3D1F4F1E2B1234567890ABCD;
+			productRefGroup = 3D1F4F282B1234567890ABCD /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				3D1F4F262B1234567890ABCD /* JarvisVertexAI */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		3D1F4F252B1234567890ABCD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				/* Removed duplicate env resource entries */
+				E0ENVRSC0000000000000001 /* env.local (Config) in Resources */,
+				3D1F4F322B1234567890ABCD /* Preview Assets.xcassets in Resources */,
+				3D1F4F2F2B1234567890ABCD /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		3D1F4F232B1234567890ABCD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3D1F4F2D2B1234567890ABCD /* ContentView.swift in Sources */,
+				3D1F4F2B2B1234567890ABCD /* JarvisVertexAIApp.swift in Sources */,
+				3D1F4F392B1234567890ABCD /* AudioModeView.swift in Sources */,
+				3D1F4F3B2B1234567890ABCD /* VoiceChatLocalView.swift in Sources */,
+				3D1F4F3D2B1234567890ABCD /* TextMultimodalView.swift in Sources */,
+				3D1F4F3F2B1234567890ABCD /* AudioSession.swift in Sources */,
+				3D1F4F412B1234567890ABCD /* LocalSTTTTS.swift in Sources */,
+				3D1F4F432B1234567890ABCD /* MultimodalChat.swift in Sources */,
+				3D1F4F452B1234567890ABCD /* SimpleDataManager.swift in Sources */,
+				3D1F4F472B1234567890ABCD /* PHIRedactor.swift in Sources */,
+				3D1F4F492B1234567890ABCD /* GoogleOAuthManager.swift in Sources */,
+				3D1F4F4D2B1234567890ABCD /* AccessTokenProvider.swift in Sources */,
+				3D1F4F4F2B1234567890ABCD /* VertexConfig.swift in Sources */,
+				E9A1B2C52C8F3A4B00123456 /* PersistentLogger.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		3D1F4F332B1234567890ABCD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		3D1F4F342B1234567890ABCD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		3D1F4F362B1234567890ABCD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"JarvisVertexAI/Preview Content\"";
+				DEVELOPMENT_TEAM = 8N538Z5KHK;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = JarvisVertexAI/Info.plist;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app needs microphone access for voice recognition and speech processing.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to convert your speech to text for AI processing.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.focusedalpha.jarvisvertexai;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		3D1F4F372B1234567890ABCD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"JarvisVertexAI/Preview Content\"";
+				DEVELOPMENT_TEAM = 8N538Z5KHK;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = JarvisVertexAI/Info.plist;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app needs microphone access for voice recognition and speech processing.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to convert your speech to text for AI processing.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.focusedalpha.jarvisvertexai;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3D1F4F222B1234567890ABCD /* Build configuration list for PBXProject "JarvisVertexAI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3D1F4F332B1234567890ABCD /* Debug */,
+				3D1F4F342B1234567890ABCD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3D1F4F352B1234567890ABCD /* Build configuration list for PBXNativeTarget "JarvisVertexAI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3D1F4F362B1234567890ABCD /* Debug */,
+				3D1F4F372B1234567890ABCD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 3D1F4F1F2B1234567890ABCD /* Project object */;
+}
