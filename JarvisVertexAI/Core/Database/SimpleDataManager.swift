@@ -350,9 +350,13 @@ final class SimpleDataManager {
     func logAuditEvent(_ event: [String: Any]) {
         // Convert event dictionary to audit log
         let action = event["action"] as? String ?? "unknown"
-        let sessionId = event["sessionId"] as? String
+        let sessionId = event["sessionId"] as? String ?? "unknown"
+        let details = event["details"] as? String ?? "Audit event logged"
         let metadata = event["metadata"] as? [String: Any] ?? [:]
 
-        logAudit(action: action, sessionId: sessionId, metadata: metadata)
+        // Convert metadata to [String: String]
+        let stringMetadata = metadata.compactMapValues { "\($0)" }
+
+        logAudit(sessionId: sessionId, action: action, details: details, metadata: stringMetadata)
     }
 }

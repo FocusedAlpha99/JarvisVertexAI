@@ -326,11 +326,13 @@ final class PHIRedactor {
 
             // Log to audit system
             SimpleDataManager.shared.logAudit(
+                sessionId: "system",
                 action: "PHI_REDACTION",
+                details: "PHI redaction performed",
                 metadata: [
-                    "redactionCount": redactionCount,
-                    "originalLength": original.count,
-                    "redactedLength": redacted.count
+                    "redactionCount": "\(redactionCount)",
+                    "originalLength": "\(original.count)",
+                    "redactedLength": "\(redacted.count)"
                 ]
             )
         }

@@ -1096,9 +1096,7 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
             return
         }
 
-        print("🎧 Received audio chunk: \(audioData.count) bytes")
-
-        // Add this chunk to the buffer
+        // Add this chunk to the buffer (removed frequent logging for performance)
         audioBuffer.append(audioData)
 
         // Start or restart the buffer timer - wait for chunks to accumulate
