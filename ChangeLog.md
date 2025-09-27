@@ -1,5 +1,47 @@
 # JarvisVertexAI Change Log
 
+## 2025-09-27 – Google Search Integration & Gmail/Calendar Access Fix
+
+### Added Google Search Grounding to Gemini API
+- **Google Search Tool**: Enabled `google_search` tool in Gemini API requests for real-time information
+- **Real-time Information**: AI can now access current events, news, weather, and up-to-date facts
+- **Grounded Responses**: Responses include citations and sources from Google Search results
+- **Automatic Search**: Gemini automatically determines when to search based on user queries
+
+### Fixed Gmail and Calendar Access Recognition Issue
+- **Root Cause**: Async context loading methods were returning "Loading..." instead of actual data
+- **Async Context Loading**: Fixed `getEmailContext()` and `getCalendarContext()` to properly await Gmail/Calendar data
+- **OAuth Manager Sharing**: Improved OAuth manager initialization and sharing across requests
+- **Authentication Status**: AI now correctly recognizes when Gmail/Calendar are authenticated vs not authenticated
+- **Dynamic Capability Reporting**: System instructions now reflect actual authentication status
+
+### Technical Improvements
+- **Google Search Integration**: Added `tools: [{"google_search": {}}]` to Gemini API requests
+- **Async Context Methods**: Updated email and calendar context methods to use proper async/await
+- **OAuth Manager Caching**: Implemented shared OAuth manager instance for consistent authentication
+- **Status-Aware Instructions**: System instructions dynamically show authentication status for each service
+- **Real-time Context**: Gmail and calendar data now properly loaded before AI processing
+
+### Enhanced System Instructions
+- **Capability Awareness**: AI now knows exactly which services are available and authenticated
+- **Service Status**: Clear indication of "AUTHENTICATED" vs "NOT AUTHENTICATED" for each service
+- **Action Confidence**: AI now confidently uses available services instead of saying it doesn't have access
+- **Search Integration**: Instructions for when to use Google Search for real-time information
+
+### Files Modified
+- `JarvisVertexAI/Core/VertexAI/MultimodalChat.swift`:
+  - Added Google Search tool to API requests
+  - Fixed async context loading for Gmail and Calendar
+  - Improved OAuth manager initialization and sharing
+  - Enhanced system instructions with dynamic capability reporting
+
+### Verification Status: COMPLETE ✅
+- ✅ Google Search: Enabled in Gemini API requests for real-time information
+- ✅ Gmail Context: Now properly loads and reports authentication status
+- ✅ Calendar Context: Now properly loads upcoming events when authenticated
+- ✅ Authentication Awareness: AI correctly recognizes available capabilities
+- ✅ Build Success: All improvements compile and integrate successfully
+
 ## 2025-09-27 – Gmail Full Access Integration: Complete Personal Assistant Email Management
 
 ### Enhanced Gmail API Integration for Personal Assistant Capabilities

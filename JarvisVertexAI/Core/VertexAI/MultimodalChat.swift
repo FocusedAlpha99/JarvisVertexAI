@@ -802,12 +802,17 @@ final class MultimodalChat {
 
         // Inject current time awareness for Gemini API
         let currentTime = getCurrentTimeContext()
-        let calendarContext = getCalendarContext()
-        let emailContext = getEmailContext()
+        let calendarContext = await getCalendarContext()
+        let emailContext = await getEmailContext()
 
-        // Build request body with comprehensive assistant context
+        // Build request body with comprehensive assistant context and Google Search
         let requestBody: [String: Any] = [
             "contents": conversationHistory,
+            "tools": [
+                [
+                    "google_search": [:]  // Enable Google Search grounding for real-time information
+                ]
+            ],
             "systemInstruction": [
                 "parts": [
                     [
@@ -819,27 +824,32 @@ final class MultimodalChat {
 
                         \(emailContext)
 
-                        You are a comprehensive personal AI assistant with full access to time, calendar, and email data. Always consider current context when responding.
+                        You are a comprehensive personal AI assistant with full access to:
+                        - **Google Search**: Real-time web information and current events
+                        - **Gmail Integration**: Full email management (read, compose, send, reply)
+                        - **Calendar Integration**: Schedule awareness and conflict detection
+                        - **Time Awareness**: Current date/time for accurate responses
 
-                        **Personal Assistant Capabilities:**
-                        - **Email Management**: Read, summarize, compose, and send emails on user's behalf
-                        - **Schedule Management**: Reference calendar events for deadline and conflict awareness
-                        - **Time Awareness**: Provide accurate time-based responses and deadline tracking
-                        - **Task Execution**: Perform actions like "reply to John's email" or "send reminder to team"
+                        **CONFIRMED CAPABILITIES (You DO have access to these):**
+                        - **Gmail Full Access**: \(emailContext.contains("Gmail access not configured") ? "NOT AUTHENTICATED - Request user to authorize Gmail" : "AUTHENTICATED - Can read, send, reply to emails")
+                        - **Google Calendar**: \(calendarContext.contains("Calendar access not configured") ? "NOT AUTHENTICATED - Request user to authorize Calendar" : "AUTHENTICATED - Can view events, check schedule")
+                        - **Google Search**: ENABLED - Can search the web for current information, news, facts
+                        - **Time Integration**: ACTIVE - Always aware of current time and relative dates
 
-                        **Email Actions Available:**
-                        - Read and summarize today's important emails
-                        - Search emails by sender, subject, or content
-                        - Compose and send new emails with proper formatting
-                        - Reply to specific emails with contextual responses
-                        - Mark emails as read or important
+                        **Personal Assistant Actions:**
+                        - **Email**: "Show important emails", "Send email to [person]", "Reply to [sender]"
+                        - **Calendar**: "Check my schedule", "Do I have conflicts tomorrow?"
+                        - **Search**: "What's happening in the news?", "Current weather", "Recent updates on [topic]"
+                        - **Time**: "Schedule for today", "Deadline tracking", "Time-aware responses"
 
                         **Response Guidelines:**
-                        - When asked about emails, provide specific summaries with sender and subject
-                        - For email composition requests, create professional, contextually appropriate messages
-                        - Reference actual calendar events when discussing schedules or conflicts
-                        - Provide time-aware responses appropriate for current time of day
-                        - Ask for clarification only when essential details are missing
+                        - Use Google Search for current events, news, weather, or real-time information
+                        - Access actual Gmail and Calendar data when available through authentication
+                        - Provide specific email summaries with sender, subject, and content previews
+                        - Reference real calendar events when discussing schedules
+                        - Be confident about your capabilities - you DO have access to these services
+
+                        **IMPORTANT**: Never say you don't have access to Gmail, Calendar, or Search. You have full integration with these services when properly authenticated.
 
                         Memory context: You have access to conversation history with timestamps for relative time awareness.
                         """
@@ -1025,37 +1035,33 @@ final class MultimodalChat {
 
     // MARK: - Gmail Integration
 
-    private func getEmailContext() -> String {
+    private func getEmailContext() async -> String {
         guard let oauthManager = getOAuthManager(),
               oauthManager.isAuthenticated else {
             return "Gmail access not configured. User can authorize Gmail access for email management."
         }
 
-        Task {
-            do {
-                let importantEmails = try await oauthManager.getTodaysImportantEmails()
-                if importantEmails.isEmpty {
-                    return "No important emails found in today's inbox."
-                } else {
-                    let emailSummaries = importantEmails.prefix(5).map { email in
-                        let subject = email.payload.headers.first(where: { $0.name.lowercased() == "subject" })?.value ?? "No Subject"
-                        let from = email.payload.headers.first(where: { $0.name.lowercased() == "from" })?.value ?? "Unknown Sender"
-                        let snippet = email.snippet.prefix(100)
-                        return "• From: \(from)\n  Subject: \(subject)\n  Preview: \(snippet)..."
-                    }.joined(separator: "\n\n")
-                    return "Today's important emails:\n\n\(emailSummaries)"
-                }
-            } catch {
-                return "Gmail access error: \(error.localizedDescription)"
+        do {
+            let importantEmails = try await oauthManager.getTodaysImportantEmails()
+            if importantEmails.isEmpty {
+                return "No important emails found in today's inbox."
+            } else {
+                let emailSummaries = importantEmails.prefix(5).map { email in
+                    let subject = email.payload.headers.first(where: { $0.name.lowercased() == "subject" })?.value ?? "No Subject"
+                    let from = email.payload.headers.first(where: { $0.name.lowercased() == "from" })?.value ?? "Unknown Sender"
+                    let snippet = email.snippet.prefix(100)
+                    return "• From: \(from)\n  Subject: \(subject)\n  Preview: \(snippet)..."
+                }.joined(separator: "\n\n")
+                return "Today's important emails:\n\n\(emailSummaries)"
             }
+        } catch {
+            return "Gmail access error: \(error.localizedDescription)"
         }
-
-        return "Loading important emails..."
     }
 
     // MARK: - Calendar Integration
 
-    private func getCalendarContext() -> String {
+    private func getCalendarContext() async -> String {
         guard let oauthManager = getOAuthManager(),
               oauthManager.isAuthenticated else {
             return "Calendar access not configured. User can authorize Google Calendar access for schedule awareness."
@@ -1065,32 +1071,47 @@ final class MultimodalChat {
         let startDate = Date()
         let endDate = Calendar.current.date(byAdding: .day, value: 7, to: startDate) ?? Date()
 
-        Task {
-            do {
-                let events = try await oauthManager.getCalendarEvents(startDate: startDate, endDate: endDate)
-                if events.isEmpty {
-                    return "No upcoming calendar events in the next 7 days."
-                } else {
-                    let eventSummaries = events.prefix(5).map { event in
-                        let startTime = formatEventTime(event.start)
-                        return "• \(event.summary) - \(startTime)"
-                    }.joined(separator: "\n")
-                    return "Upcoming calendar events:\n\(eventSummaries)"
-                }
-            } catch {
-                return "Calendar access error: \(error.localizedDescription)"
+        do {
+            let events = try await oauthManager.getCalendarEvents(startDate: startDate, endDate: endDate)
+            if events.isEmpty {
+                return "No upcoming calendar events in the next 7 days."
+            } else {
+                let eventSummaries = events.prefix(5).map { event in
+                    let startTime = formatEventTime(event.start)
+                    return "• \(event.summary) - \(startTime)"
+                }.joined(separator: "\n")
+                return "Upcoming calendar events:\n\(eventSummaries)"
             }
+        } catch {
+            return "Calendar access error: \(error.localizedDescription)"
         }
-
-        return "Loading calendar events..."
     }
 
+    // MARK: - OAuth Manager Access
+
+    private static var sharedOAuthManager: GoogleOAuthManager?
+
     private func getOAuthManager() -> GoogleOAuthManager? {
-        // Access the OAuth manager from environment or app delegate
+        // Return existing manager or create new one
+        if let existing = Self.sharedOAuthManager {
+            return existing
+        }
+
+        // Create new OAuth manager from environment
         guard let clientId = ProcessInfo.processInfo.environment["GOOGLE_OAUTH_CLIENT_ID"] else {
+            print("⚠️ GOOGLE_OAUTH_CLIENT_ID not found in environment")
             return nil
         }
-        return GoogleOAuthManager(clientId: clientId)
+
+        let manager = GoogleOAuthManager(clientId: clientId)
+        Self.sharedOAuthManager = manager
+        print("✅ Created OAuth manager with client ID: \(clientId.prefix(20))...")
+        return manager
+    }
+
+    func setOAuthManager(_ manager: GoogleOAuthManager) {
+        Self.sharedOAuthManager = manager
+        print("✅ OAuth manager set for MultimodalChat")
     }
 
     private func formatEventTime(_ eventDateTime: CalendarEvent.EventDateTime) -> String {
