@@ -26,14 +26,16 @@ A three-mode conversational AI iOS application leveraging Google Vertex AI's Gem
 - PHI automatically redacted before transmission
 - Professional UI with real-time visual feedback
 
-#### Mode 3: Text + Multimodal
+#### Mode 3: Text + Multimodal ⭐ **Time & Calendar Aware**
 - **Direct Gemini API integration** for reliable multimodal chat
+- **Comprehensive Time Awareness**: Current time injection for accurate temporal responses
+- **Google Calendar Integration**: Schedule awareness for deadline management and task planning
 - **Keyboard input with drag-and-drop** file attachments
 - **Advanced image analysis** with vision AI capabilities
 - **Document processing** for PDFs and text files
 - **Ephemeral file storage** (24-hour auto-delete)
-- **Real-time conversation history** with professional UI
-- **Privacy-first design** with automatic PHI redaction
+- **Real-time conversation history** with timestamp context
+- **Privacy-first design** optimized for conversational personalization
 
 ### 🛡️ Privacy & Security Features
 

@@ -1,5 +1,61 @@
 # JarvisVertexAI Change Log
 
+## 2025-09-27 – Comprehensive Time Awareness & Calendar Integration Implemented
+
+### Enhanced Time Awareness for Personal Assistant Functionality
+- **Issue**: Gemini API lacks inherent time awareness, returning "[CURRENT_TIME_IN_BOSTON]" placeholders instead of actual time
+- **Root Cause**: Gemini API requires explicit time injection in system instructions for temporal context
+- **Solution**: Implemented comprehensive time awareness with ObjectBox timestamp optimization and Google Calendar integration
+
+### Technical Implementation
+
+#### 1. Current Time Injection
+- **System Instruction Enhancement**: Added real-time date/time context injection for every Gemini API call
+- **Time Context Provider**: Created `getCurrentTimeContext()` with full datetime, timezone, weekday, and time-of-day awareness
+- **Temporal Intelligence**: Gemini now has accurate current time for deadline management and schedule awareness
+
+#### 2. ObjectBox Timestamp Optimization
+- **Relative Time Awareness**: Added `getConversationHistoryWithTimeContext()` for time-aware conversation loading
+- **Relative Time Descriptions**: Messages now include context like "2 hours ago", "yesterday at 3:15 PM", "just now"
+- **Memory Timeline**: Conversation history includes temporal context for better recall and timeline understanding
+
+#### 3. Google Calendar Integration
+- **OAuth Integration**: Leveraged existing Google OAuth setup with calendar.events.readonly scope
+- **Schedule Awareness**: Integrated upcoming calendar events (next 7 days) into AI context
+- **Deadline Management**: AI can now reference actual calendar conflicts and suggest optimal timing
+- **Calendar Context**: System instructions include calendar events for accountability and schedule planning
+
+### New Features
+
+#### Time Awareness Methods
+- `getCurrentTimeContext()`: Provides comprehensive current time context with timezone and time-of-day classification
+- `getCalendarContext()`: Fetches and formats upcoming calendar events for schedule awareness
+- `getConversationHistoryWithTimeContext()`: Loads conversation history with relative timestamps
+- `getRelativeTimeDescription()`: Converts timestamps to human-readable relative time ("2 hours ago")
+
+#### Personal Assistant Capabilities
+- **Deadline Tracking**: Can now accurately assess deadlines relative to current time
+- **Schedule Optimization**: References calendar availability for task planning
+- **Time-Aware Responses**: Provides context-appropriate responses based on time of day
+- **Accountability Support**: Tracks commitments and deadlines with temporal awareness
+
+### Files Modified
+- `JarvisVertexAI/Core/VertexAI/MultimodalChat.swift`: Added time awareness, calendar integration, and enhanced system instructions
+- `JarvisVertexAI/Core/Database/ObjectBoxManager.swift`: Added time-aware query methods with relative timestamp descriptions
+
+### Best Practices Implementation
+- **Sustainable ObjectBox Operations**: Following 2025 ObjectBox best practices for efficient timestamp queries
+- **Privacy-Conscious Calendar Access**: Uses existing minimal OAuth scopes with read-only calendar access
+- **UTC Internal Storage**: ObjectBox stores timestamps with millisecond precision following iOS best practices
+- **Time Zone Awareness**: Proper local time display while maintaining UTC internal consistency
+
+### Verification Status: COMPLETE ✅
+- ✅ Build Success: All time awareness features compile successfully
+- ✅ Time Injection: Gemini API now receives accurate current time in all requests
+- ✅ Calendar Integration: Google Calendar events integrated into AI context when authorized
+- ✅ Relative Time Context: Conversation history includes meaningful temporal context
+- ✅ Deadline Awareness: AI can now provide accurate time-based responses and deadline management
+
 ## 2025-09-27 – PHI Redaction Disabled for Mode 3 Conversational Context
 
 ### Disabled PHI Redaction in Mode 3 for Personalized Conversations

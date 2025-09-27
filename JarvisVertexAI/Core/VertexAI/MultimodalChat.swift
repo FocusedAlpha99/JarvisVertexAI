@@ -110,12 +110,12 @@ final class MultimodalChat {
     }
 
     private func loadPreviousConversationHistory() {
-        // Load recent conversation history from ObjectBox (cross-session memory)
+        // Load recent conversation history with time context from ObjectBox (cross-session memory)
         // Use sustainable approach: limit to recent 30 messages for optimal recall without performance impact
-        conversationHistory = ObjectBoxManager.shared.getConversationHistory(limit: 30)
+        conversationHistory = ObjectBoxManager.shared.getConversationHistoryWithTimeContext(limit: 30)
 
         if !conversationHistory.isEmpty {
-            print("🧠 Loaded \(conversationHistory.count) previous messages from persistent memory")
+            print("🧠 Loaded \(conversationHistory.count) time-aware messages from persistent memory")
 
             // Log memory stats for optimization tracking
             let memoryStats = ObjectBoxManager.shared.getConversationMemoryStats()
@@ -123,7 +123,7 @@ final class MultimodalChat {
                 print("🧠 Memory recall status: \(optimalForRecall ? "Optimal" : "Building")")
             }
         } else {
-            print("🧠 No previous conversation memory found - starting fresh")
+            print("🧠 No previous conversation memory found - starting fresh with time awareness")
         }
     }
 
@@ -594,9 +594,36 @@ final class MultimodalChat {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 30.0
 
-        // Build request body
+        // Inject current time awareness for Gemini API
+        let currentTime = getCurrentTimeContext()
+        let calendarContext = getCalendarContext()
+
+        // Build request body with time-aware system instruction
         let requestBody: [String: Any] = [
             "contents": conversationHistory,
+            "systemInstruction": [
+                "parts": [
+                    [
+                        "text": """
+                        Current date and time: \(currentTime.fullContext)
+                        Local timezone: \(currentTime.timezone)
+
+                        \(calendarContext)
+
+                        You are a personal AI assistant with full time awareness and calendar integration. Always consider the current time when responding.
+                        When users ask about time, dates, schedules, deadlines, or relative time references (today, tomorrow, this week, etc.),
+                        use the current time and calendar information provided above for accurate responses.
+
+                        For accountability and deadline management:
+                        - Reference actual calendar events when discussing schedule conflicts
+                        - Provide time-aware deadline reminders based on current date/time
+                        - Suggest optimal timing for tasks based on calendar availability
+
+                        Memory context: You have access to conversation history with timestamps for relative time awareness.
+                        """
+                    ]
+                ]
+            ],
             "generationConfig": [
                 "maxOutputTokens": 2048,
                 "temperature": 0.7
@@ -771,6 +798,103 @@ final class MultimodalChat {
             return "Continuing our conversation... \(randomResponse)"
         } else {
             return randomResponse
+        }
+    }
+
+    // MARK: - Calendar Integration
+
+    private func getCalendarContext() -> String {
+        guard let oauthManager = getOAuthManager(),
+              oauthManager.isAuthenticated else {
+            return "Calendar access not configured. User can authorize Google Calendar access for schedule awareness."
+        }
+
+        // Get events for next 7 days
+        let startDate = Date()
+        let endDate = Calendar.current.date(byAdding: .day, value: 7, to: startDate) ?? Date()
+
+        Task {
+            do {
+                let events = try await oauthManager.getCalendarEvents(startDate: startDate, endDate: endDate)
+                if events.isEmpty {
+                    return "No upcoming calendar events in the next 7 days."
+                } else {
+                    let eventSummaries = events.prefix(5).map { event in
+                        let startTime = formatEventTime(event.start)
+                        return "• \(event.summary) - \(startTime)"
+                    }.joined(separator: "\n")
+                    return "Upcoming calendar events:\n\(eventSummaries)"
+                }
+            } catch {
+                return "Calendar access error: \(error.localizedDescription)"
+            }
+        }
+
+        return "Loading calendar events..."
+    }
+
+    private func getOAuthManager() -> GoogleOAuthManager? {
+        // Access the OAuth manager from environment or app delegate
+        guard let clientId = ProcessInfo.processInfo.environment["GOOGLE_OAUTH_CLIENT_ID"] else {
+            return nil
+        }
+        return GoogleOAuthManager(clientId: clientId)
+    }
+
+    private func formatEventTime(_ eventDateTime: CalendarEvent.EventDateTime) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+
+        if let dateTimeString = eventDateTime.dateTime {
+            let isoFormatter = ISO8601DateFormatter()
+            if let date = isoFormatter.date(from: dateTimeString) {
+                return formatter.string(from: date)
+            }
+        } else if let dateString = eventDateTime.date {
+            formatter.timeStyle = .none
+            let isoFormatter = ISO8601DateFormatter()
+            if let date = isoFormatter.date(from: dateString + "T00:00:00Z") {
+                return formatter.string(from: date)
+            }
+        }
+
+        return "Time TBD"
+    }
+
+    // MARK: - Time Awareness
+
+    private func getCurrentTimeContext() -> (fullContext: String, timezone: String) {
+        let now = Date()
+        let formatter = DateFormatter()
+
+        // Full context formatter
+        formatter.dateStyle = .full
+        formatter.timeStyle = .full
+        let fullDateTime = formatter.string(from: now)
+
+        // Timezone
+        let timezone = TimeZone.current.identifier
+
+        // Additional context
+        let calendar = Calendar.current
+        let weekday = calendar.component(.weekday, from: now)
+        let weekdayName = formatter.weekdaySymbols[weekday - 1]
+
+        let hour = calendar.component(.hour, from: now)
+        let timeOfDay = getTimeOfDay(hour: hour)
+
+        let fullContext = "\(fullDateTime) (\(weekdayName) \(timeOfDay))"
+
+        return (fullContext: fullContext, timezone: timezone)
+    }
+
+    private func getTimeOfDay(hour: Int) -> String {
+        switch hour {
+        case 5..<12: return "Morning"
+        case 12..<17: return "Afternoon"
+        case 17..<21: return "Evening"
+        default: return "Night"
         }
     }
 

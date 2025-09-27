@@ -213,6 +213,78 @@ final class ObjectBoxManager {
         }
     }
 
+    // MARK: - Time-Aware Query Methods
+    func getConversationHistoryWithTimeContext(sessionId: String? = nil, limit: Int = 50) -> [[String: Any]] {
+        do {
+            // Store queries for reuse to optimize performance
+            var query: Query<TranscriptEntity>
+
+            if let sessionId = sessionId {
+                query = try transcriptBox.query {
+                    TranscriptEntity.sessionId == sessionId
+                }.build()
+            } else {
+                query = try transcriptBox.query().build()
+            }
+
+            let allTranscripts = try query.find()
+            let sortedTranscripts = allTranscripts.sorted { $0.timestamp > $1.timestamp }
+            let limitedTranscripts = Array(sortedTranscripts.prefix(limit))
+
+            var conversationHistory: [[String: Any]] = []
+
+            for transcript in limitedTranscripts.reversed() { // Chronological order
+                let decryptedText = decrypt(transcript.encryptedText)
+                let role = transcript.speaker == "user" ? "user" : "model"
+
+                // Add relative time context
+                let relativeTime = getRelativeTimeDescription(for: transcript.timestamp)
+                let enhancedText = "\(decryptedText)\n[Timestamp: \(relativeTime)]"
+
+                let message: [String: Any] = [
+                    "role": role,
+                    "parts": [["text": enhancedText]]
+                ]
+                conversationHistory.append(message)
+            }
+
+            print("📚 Loaded \(conversationHistory.count) time-aware conversation messages")
+            return conversationHistory
+
+        } catch {
+            print("❌ Failed to load time-aware conversation history: \(error)")
+            return []
+        }
+    }
+
+    private func getRelativeTimeDescription(for timestamp: Date) -> String {
+        let now = Date()
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+
+        let timeInterval = now.timeIntervalSince(timestamp)
+
+        if timeInterval < 60 { // Less than a minute
+            return "just now"
+        } else if timeInterval < 3600 { // Less than an hour
+            let minutes = Int(timeInterval / 60)
+            return "\(minutes) minute\(minutes == 1 ? "" : "s") ago"
+        } else if timeInterval < 86400 { // Less than a day
+            let hours = Int(timeInterval / 3600)
+            return "\(hours) hour\(hours == 1 ? "" : "s") ago"
+        } else if calendar.isDateInYesterday(timestamp) {
+            formatter.timeStyle = .short
+            return "yesterday at \(formatter.string(from: timestamp))"
+        } else if timeInterval < 604800 { // Less than a week
+            let days = Int(timeInterval / 86400)
+            return "\(days) day\(days == 1 ? "" : "s") ago"
+        } else {
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            return formatter.string(from: timestamp)
+        }
+    }
+
     // MARK: - Memory Management (Sustainable Approach)
     func getConversationMemoryStats() -> [String: Any] {
         do {
