@@ -11,6 +11,9 @@ import UniformTypeIdentifiers
 import PhotosUI
 
 struct TextMultimodalView: View {
+    // MARK: - Environment Objects
+    @EnvironmentObject var coordinator: AppCoordinator
+
     // MARK: - State Properties
     @State private var messageText = ""
     @State private var isLoading = false
@@ -53,6 +56,21 @@ struct TextMultimodalView: View {
         }
         .navigationTitle("Text + Multimodal")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: {
+                    coordinator.selectedMode = .nativeAudio
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .medium))
+                        Text("Modes")
+                            .font(.system(size: 16))
+                    }
+                    .foregroundColor(.blue)
+                }
+            }
+        }
         .onAppear {
             setupNotificationObservers()
             updateEphemeralFileStatus()
