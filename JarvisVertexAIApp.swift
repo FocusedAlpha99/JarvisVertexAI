@@ -117,8 +117,8 @@ struct ContentView: View {
                 }
                 .tag(AppCoordinator.ConversationMode.nativeAudio)
             
-            // Mode 2: Voice Chat Local
-            VoiceChatLocalView()
+            // Mode 2: Voice Chat Local (Removed)
+            Text("Voice Chat Local Mode Removed")
                 .tabItem {
                     Label("Voice", systemImage: "mic.circle")
                 }

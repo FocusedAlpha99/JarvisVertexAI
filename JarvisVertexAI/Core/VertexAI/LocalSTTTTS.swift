@@ -17,11 +17,8 @@ final class LocalSTTTTS: NSObject {
 
     static let shared = LocalSTTTTS()
 
-    // Live API WebSocket connection
-    private var webSocketTask: URLSessionWebSocketTask?
-    private var urlSession: URLSession?
+    // Audio engine for local speech recognition
     private let audioEngine = AVAudioEngine()
-    private let audioQueue = DispatchQueue(label: "com.jarvisvertexai.liveapi", qos: .userInteractive)
 
     // iOS Speech Framework Integration
     private var speechRecognizer: SFSpeechRecognizer?
@@ -33,19 +30,22 @@ final class LocalSTTTTS: NSObject {
     private var speechSynthesizer: AVSpeechSynthesizer?
     private var currentUtterance: AVSpeechUtterance?
 
-    // Ephemeral token authentication
-    private var ephemeralToken: String = ""
-    private var tokenExpiryTime: Date?
-
-    // Session management with conversation context
+    // Session management
     private var currentSessionId: String?
     private var isActive = false
-    private var conversationHistory: [[String: Any]] = []
 
     // Voice Activity Detection
     private var isUserSpeaking = false
     private var lastAudioLevel: Float = 0.0
     private let vadThreshold: Float = 0.02
+
+    // Prevent duplicate processing (iOS 18 fix)
+    private var lastProcessedTranscript: String = ""
+    private var isProcessingTranscript = false
+    private var processingTimeout: Task<Void, Never>?
+    private var lastTranscriptTimestamp: Date = Date.distantPast
+    private var isRecognitionRunning = false
+    private var shouldRestartRecognition = false
 
     // Audio configuration
     private let sampleRate: Double = 24000
@@ -150,45 +150,9 @@ final class LocalSTTTTS: NSObject {
         print("✅ Text-to-Speech synthesizer initialized with enhanced audio mixing")
     }
 
-    // MARK: - Connection Management
+    // MARK: - Session Management
 
-    func connect() async throws {
-        // Validate VertexConfig
-        guard VertexConfig.shared.isConfigured else {
-            print("❌ VertexConfig not properly configured")
-            throw AudioSessionError.connectionFailed
-        }
-
-        print("🔗 Connecting LocalSTTTTS to Vertex AI...")
-        print("📊 Project: \(VertexConfig.shared.projectId), Region: \(VertexConfig.shared.region)")
-
-        // Get ephemeral token
-        ephemeralToken = try await getEphemeralToken()
-
-        // Build WebSocket URL
-        let wsURL = buildWebSocketURL()
-
-        // Configure URL session with privacy settings
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.waitsForConnectivity = false
-        configuration.timeoutIntervalForRequest = 30.0
-        configuration.timeoutIntervalForResource = 60.0
-        configuration.httpAdditionalHeaders = [
-            "User-Agent": "JarvisVertexAI-LocalSTTTTS/1.0 (Privacy-Focused)",
-            "X-Privacy-Mode": "strict",
-            "Cache-Control": "no-cache, no-store"
-        ]
-
-        urlSession = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
-
-        // Create WebSocket connection
-        let request = URLRequest(url: wsURL)
-        webSocketTask = urlSession?.webSocketTask(with: request)
-        webSocketTask?.resume()
-
-        // Start receiving messages
-        receiveMessages()
-
+    func startVoiceSession() {
         isActive = true
 
         // Create database session
@@ -196,294 +160,21 @@ final class LocalSTTTTS: NSObject {
             mode: "VoiceChatLocal",
             metadata: [
                 "sessionType": "conversational",
-                "vadEnabled": true,
-                "liveApi": true,
-                "interruptionsSupported": true,
-                "vertexAI": true
+                "sttProcessing": "On-device iOS Speech Framework",
+                "ttsProcessing": "On-device AVSpeechSynthesizer",
+                "apiType": "Vertex AI REST API"
             ]
         )
 
-        print("🗣️ Voice Chat Local session connected with VAD to Vertex AI")
+        print("🗣️ Voice Chat Local session started (REST API mode)")
     }
 
-    private func buildWebSocketURL() -> URL {
-        // Vertex AI Live API WebSocket endpoint (proper format)
-        var components = URLComponents()
-        components.scheme = "wss"
-        components.host = "\(VertexConfig.shared.region)-aiplatform.googleapis.com"
-        components.path = "/ws/v1/projects/\(VertexConfig.shared.projectId)/locations/\(VertexConfig.shared.region)/publishers/google/models/gemini-2.0-flash-exp:streamGenerateContent"
-
-        // Add authentication and privacy parameters
-        components.queryItems = [
-            URLQueryItem(name: "access_token", value: ephemeralToken),
-            URLQueryItem(name: "alt", value: "websocket"),
-            URLQueryItem(name: "prettyPrint", value: "false"),
-            URLQueryItem(name: "quotaUser", value: UUID().uuidString),
-            URLQueryItem(name: "fields", value: "candidates,modelVersion,usageMetadata")
-        ]
-
-        guard let url = components.url else {
-            fatalError("Failed to build WebSocket URL for project: \(VertexConfig.shared.projectId), region: \(VertexConfig.shared.region)")
-        }
-
-        print("🌐 LocalSTTTTS WebSocket URL: \(url.absoluteString)")
-        return url
-    }
-
-    private func sendConfiguration() async throws {
-        // Vertex AI Live API setup message with proper format
-        let setupMessage: [String: Any] = [
-            "setup": [
-                "model": "models/gemini-2.0-flash-exp",
-                "generation_config": [
-                    "response_modalities": ["AUDIO"],
-                    "speech_config": [
-                        "voice_config": [
-                            "prebuilt_voice_config": [
-                                "voice_name": "Charon"
-                            ]
-                        ]
-                    ],
-                    "candidate_count": 1,
-                    "max_output_tokens": 2048,
-                    "temperature": 0.7,
-                    "top_p": 0.8,
-                    "top_k": 40
-                ],
-                "system_instruction": [
-                    "parts": [
-                        [
-                            "text": "You are a conversational AI assistant. Engage naturally and allow for interruptions. Keep responses concise and interactive."
-                        ]
-                    ]
-                ],
-                "safety_settings": [
-                    [
-                        "category": "HARM_CATEGORY_HARASSMENT",
-                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-                    ],
-                    [
-                        "category": "HARM_CATEGORY_HATE_SPEECH",
-                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-                    ],
-                    [
-                        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-                    ],
-                    [
-                        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
-                    ]
-                ],
-                "tools": []
-            ]
-        ]
-
-        let data = try JSONSerialization.data(withJSONObject: setupMessage)
-        let message = URLSessionWebSocketTask.Message.data(data)
-        try await webSocketTask?.send(message)
-
-        print("✅ Vertex AI Live API configuration sent")
-        if let setupString = String(data: data, encoding: .utf8) {
-            print("📋 LocalSTTTTS Setup: \(setupString)")
-        } else {
-            print("📋 LocalSTTTTS Setup: [binary data]")
-        }
-    }
-
-    // MARK: - Audio Streaming with VAD
-
-    func startListening() {
-        guard isActive else { return }
-
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-
-        // Install tap with Voice Activity Detection
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
-            self?.processAudioBufferWithVAD(buffer)
-        }
-
-        audioEngine.prepare()
-        do {
-            try audioEngine.start()
-            print("🎤 Voice chat listening started with VAD")
-        } catch {
-            print("❌ Failed to start audio engine: \(error)")
-        }
-    }
-
-    private func processAudioBufferWithVAD(_ buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData else { return }
-
-        let channelDataValue = channelData.pointee
-        let frameLength = Int(buffer.frameLength)
-
-        // Calculate audio level for Voice Activity Detection
-        var sum: Float = 0
-        for i in 0..<frameLength {
-            let sample = channelDataValue[i]
-            sum += sample * sample
-        }
-        let rms = sqrt(sum / Float(frameLength))
-        lastAudioLevel = rms
-
-        // Voice Activity Detection
-        let wasUserSpeaking = isUserSpeaking
-        isUserSpeaking = rms > vadThreshold
-
-        // User started speaking - interrupt model if it's responding
-        if !wasUserSpeaking && isUserSpeaking {
-            Task {
-                await sendInterrupt()
-            }
-        }
-
-        // Only send audio when user is speaking
-        if isUserSpeaking {
-            // Convert to PCM data
-            let channelDataArray = stride(from: 0, to: frameLength, by: 1).map {
-                channelDataValue[$0]
-            }
-
-            let int16Data = channelDataArray.map { Int16($0 * 32767) }
-            let data = int16Data.withUnsafeBufferPointer { Data(buffer: $0) }
-
-            // Send audio data
-            Task {
-                await sendAudioData(data)
-            }
-        }
-
-        // Notify UI about audio level
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(
-                name: .voiceChatAudioLevel,
-                object: nil,
-                userInfo: ["level": rms, "speaking": self.isUserSpeaking]
-            )
-        }
-    }
-
-    private func sendAudioData(_ data: Data) async {
-        let audioMessage: [String: Any] = [
-            "realtimeInput": [
-                "mediaChunks": [
-                    [
-                        "mimeType": "audio/pcm",
-                        "data": data.base64EncodedString()
-                    ]
-                ]
-            ]
-        ]
-
-        if let messageData = try? JSONSerialization.data(withJSONObject: audioMessage) {
-            let message = URLSessionWebSocketTask.Message.data(messageData)
-            try? await webSocketTask?.send(message)
-        }
-    }
-
-    private func sendInterrupt() async {
-        let interruptMessage: [String: Any] = [
-            "clientContent": [
-                "turnComplete": true
-            ]
-        ]
-
-        if let messageData = try? JSONSerialization.data(withJSONObject: interruptMessage) {
-            let message = URLSessionWebSocketTask.Message.data(messageData)
-            try? await webSocketTask?.send(message)
-            print("⚡ User interruption sent")
-        }
-    }
-
-    func stopListening() {
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
-        isUserSpeaking = false
-        print("🛑 Voice chat listening stopped")
-    }
-
-    // MARK: - Message Reception
-
-    private func receiveMessages() {
-        webSocketTask?.receive { [weak self] result in
-            switch result {
-            case .success(let message):
-                self?.handleMessage(message)
-                self?.receiveMessages() // Continue receiving
-            case .failure(let error):
-                print("❌ WebSocket receive error: \(error)")
-
-                // Check if error might be authentication-related
-                let errorDescription = error.localizedDescription.lowercased()
-                if errorDescription.contains("401") || errorDescription.contains("unauthorized") ||
-                   errorDescription.contains("403") || errorDescription.contains("forbidden") {
-                    print("⚠️ Detected authentication error in WebSocket failure")
-                    Task {
-                        await self?.handleAuthenticationError()
-                    }
-                } else {
-                    self?.handleDisconnection()
-                }
-            }
-        }
-    }
-
-    private func handleMessage(_ message: URLSessionWebSocketTask.Message) {
-        switch message {
-        case .data(let data):
-            handleDataMessage(data)
-        case .string(let text):
-            handleTextMessage(text)
-        @unknown default:
-            break
-        }
-    }
-
-    private func handleDataMessage(_ data: Data) {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-
-        if let serverContent = json["serverContent"] as? [String: Any] {
-            handleServerContent(serverContent)
-        }
-    }
-
-    private func handleServerContent(_ content: [String: Any]) {
-        // Handle model responses with conversation context
-        if let modelTurn = content["modelTurn"] as? [String: Any],
-           let parts = modelTurn["parts"] as? [[String: Any]] {
-
-            for part in parts {
-                // Handle text responses
-                if let text = part["text"] as? String {
-                    handleTextResponse(text)
-                }
-
-                // Handle audio responses
-                if let inlineData = part["inlineData"] as? [String: Any],
-                   let mimeType = inlineData["mimeType"] as? String,
-                   let data = inlineData["data"] as? String,
-                   mimeType.contains("audio") {
-                    handleAudioResponse(data)
-                }
-            }
-
-            // Add to conversation history for context
-            conversationHistory.append(modelTurn)
-        }
-
-        // Handle interruptions
-        if let interrupted = content["interrupted"] as? Bool, interrupted {
-            print("🔄 Model response interrupted by user")
-        }
-    }
-
-    private func handleTextMessage(_ text: String) {
-        handleTextResponse(text)
-    }
 
     private func handleTextResponse(_ text: String) {
+        // Reset processing state when we get a response
+        isProcessingTranscript = false
+        processingTimeout?.cancel()
+
         let redacted = PHIRedactor.shared.redactPHI(from: text)
 
         if let sessionId = currentSessionId {
@@ -500,6 +191,9 @@ final class LocalSTTTTS: NSObject {
             object: nil,
             userInfo: ["text": redacted, "speaker": "assistant"]
         )
+
+        // Speak the response using on-device TTS
+        speakText(redacted)
     }
 
     private var audioPlayer: AVAudioPlayer?
@@ -507,7 +201,7 @@ final class LocalSTTTTS: NSObject {
     private func handleAudioResponse(_ base64Audio: String) {
         guard let audioData = Data(base64Encoded: base64Audio) else { return }
 
-        audioQueue.async { [weak self] in
+        DispatchQueue.main.async { [weak self] in
             do {
                 self?.audioPlayer = try AVAudioPlayer(data: audioData)
                 self?.audioPlayer?.play()
@@ -528,28 +222,24 @@ final class LocalSTTTTS: NSObject {
 
     func terminateVoiceSession() {
         isActive = false
-        stopListening()
-        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        stopLocalSpeechRecognition()
 
         if let sessionId = currentSessionId {
             SimpleDataManager.shared.endSession(sessionId)
         }
 
-        conversationHistory.removeAll()
         currentSessionId = nil
-        ephemeralToken = ""
 
         print("🔒 Voice chat session terminated")
     }
 
     func pauseVoiceSession() {
-        stopListening()
+        stopLocalSpeechRecognition()
     }
 
     func resumeVoiceSession() {
-        if isActive {
-            startListening()
-        }
+        // Note: UI controls speech recognition lifecycle, no auto-start here
+        print("🔄 Voice session resume requested")
     }
 
     // MARK: - Authentication
@@ -558,7 +248,7 @@ final class LocalSTTTTS: NSObject {
         // Use the comprehensive AccessTokenProvider
         do {
             let token = try await AccessTokenProvider.shared.getAccessToken()
-            tokenExpiryTime = Date().addingTimeInterval(15 * 60)
+            // Note: No token caching needed for REST API calls
             return token
         } catch {
             print("❌ Failed to get access token: \(error)")
@@ -567,7 +257,7 @@ final class LocalSTTTTS: NSObject {
     }
 
     func setAccessToken(_ token: String) {
-        ephemeralToken = token
+        // Note: Access tokens are fetched fresh for each REST API call
     }
 
     // MARK: - Privacy Verification
@@ -578,7 +268,7 @@ final class LocalSTTTTS: NSObject {
             "apiType": "Gemini Live API",
             "vadEnabled": true,
             "interruptionsSupported": true,
-            "conversationContext": conversationHistory.count,
+            "conversationContext": 0,
             "ephemeralSession": true,
             "localStorage": "Encrypted UserDefaults",
             "sttProcessing": "On-device iOS Speech Framework",
@@ -586,162 +276,6 @@ final class LocalSTTTTS: NSObject {
             "languageDetection": "On-device NLLanguageRecognizer",
             "voiceQuality": "Enhanced when available"
         ]
-    }
-}
-
-// MARK: - URLSessionWebSocketDelegate
-
-extension LocalSTTTTS: URLSessionWebSocketDelegate {
-
-    func urlSession(_ session: URLSession,
-                   webSocketTask: URLSessionWebSocketTask,
-                   didOpenWithProtocol protocol: String?) {
-        print("✅ Voice Chat WebSocket connected")
-
-        Task {
-            try await sendConfiguration()
-            await MainActor.run {
-                startListening()
-            }
-        }
-
-        NotificationCenter.default.post(name: .voiceChatConnected, object: nil)
-    }
-
-    func urlSession(_ session: URLSession,
-                   webSocketTask: URLSessionWebSocketTask,
-                   didCompleteWithError error: Error?) {
-        if let error = error {
-            let nsError = error as NSError
-            print("❌ WebSocket connection failed: \(error)")
-
-            // Check for HTTP status code errors in the underlying error
-            if let httpResponse = nsError.userInfo["NSHTTPURLResponseKey"] as? HTTPURLResponse {
-                if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
-                    print("⚠️ HTTP authentication error (\(httpResponse.statusCode)) detected")
-                    Task {
-                        await handleAuthenticationError()
-                    }
-                    return
-                }
-            }
-
-            // Check error description for auth-related keywords
-            let errorDescription = error.localizedDescription.lowercased()
-            if errorDescription.contains("401") || errorDescription.contains("unauthorized") ||
-               errorDescription.contains("403") || errorDescription.contains("forbidden") {
-                print("⚠️ Authentication error detected in connection failure")
-                Task {
-                    await handleAuthenticationError()
-                }
-                return
-            }
-
-            handleDisconnection()
-        }
-    }
-
-    func urlSession(_ session: URLSession,
-                   webSocketTask: URLSessionWebSocketTask,
-                   didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
-                   reason: Data?) {
-        let reasonString = reason.flatMap { String(data: $0, encoding: .utf8) } ?? "Unknown"
-        print("🔌 Voice Chat WebSocket closed: \(closeCode) - \(reasonString)")
-
-        // Check for authentication-related closures (401/403 usually map to policy violations)
-        let isAuthError = closeCode == .policyViolation &&
-                         (reasonString.contains("401") || reasonString.contains("403") || reasonString.contains("Unauthorized"))
-
-        if isAuthError {
-            print("⚠️ Authentication error detected in WebSocket closure")
-            Task {
-                await handleAuthenticationError()
-            }
-            return
-        }
-
-        // Handle different close codes
-        switch closeCode {
-        case .normalClosure:
-            print("✅ WebSocket closed normally")
-        case .goingAway:
-            print("⏳ Server going away")
-        case .protocolError:
-            print("❌ WebSocket protocol error")
-        case .unsupportedData:
-            print("❌ Unsupported data type")
-        case .noStatusReceived:
-            print("❌ No status received")
-        case .abnormalClosure:
-            print("❌ Abnormal WebSocket closure")
-        case .invalidFramePayloadData:
-            print("❌ Invalid frame payload data")
-        case .policyViolation:
-            print("❌ Policy violation (may be auth-related)")
-        case .messageTooBig:
-            print("❌ Message too big")
-        case .internalServerError:
-            print("❌ Internal server error")
-        case .invalid:
-            print("❌ Invalid close code")
-        case .mandatoryExtensionMissing:
-            print("❌ Mandatory extension missing")
-        case .tlsHandshakeFailure:
-            print("❌ TLS handshake failure")
-        @unknown default:
-            print("❌ Unknown close code: \(closeCode)")
-        }
-
-        handleDisconnection()
-    }
-
-    private func handleDisconnection() {
-        terminateVoiceSession()
-        NotificationCenter.default.post(name: .voiceChatDisconnected, object: nil)
-    }
-
-    private func handleAuthenticationError() async {
-        print("⚠️ Authentication error detected, refreshing token...")
-
-        do {
-            // Force refresh the token
-            let newToken = try await AccessTokenProvider.shared.getAccessTokenWithRetry()
-            ephemeralToken = newToken
-            tokenExpiryTime = Date().addingTimeInterval(15 * 60)
-
-            print("✅ Token refreshed successfully, reconnecting...")
-
-            // Reconnect with new token
-            if isActive {
-                await reconnectWithNewToken()
-            }
-        } catch {
-            print("❌ Failed to refresh token: \(error)")
-            terminateVoiceSession()
-            NotificationCenter.default.post(
-                name: .voiceChatError,
-                object: nil,
-                userInfo: ["error": error]
-            )
-        }
-    }
-
-    private func reconnectWithNewToken() async {
-        // Terminate current session
-        webSocketTask?.cancel()
-        webSocketTask = nil
-
-        // Small delay before reconnecting
-        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-
-        // Reconnect
-        do {
-            try await connect()
-            print("✅ Successfully reconnected with refreshed token")
-        } catch {
-            print("❌ Failed to reconnect: \(error)")
-            handleDisconnection()
-        }
     }
 
     // MARK: - Speech Recognition Methods
@@ -752,8 +286,20 @@ extension LocalSTTTTS: URLSessionWebSocketDelegate {
             return
         }
 
+        print("🎤 Starting speech recognition...")
+
         // Cancel previous recognition task
         stopLocalSpeechRecognition()
+
+        // Ensure audio session is properly configured
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("❌ Audio session setup failed: \(error)")
+            return
+        }
 
         do {
             // Create recognition request with on-device preference
@@ -780,25 +326,72 @@ extension LocalSTTTTS: URLSessionWebSocketDelegate {
                     let transcript = result.bestTranscription.formattedString
                     let isFinal = result.isFinal
 
-                    // Post STT transcript notification
-                    NotificationCenter.default.post(
-                        name: .voiceChatTranscript,
-                        object: nil,
-                        userInfo: [
-                            "text": transcript,
-                            "speaker": "user",
-                            "wasRedacted": false
-                        ]
-                    )
+                    // iOS 18 Fix: Check if result is truly final using metadata and confidence
+                    let isTrulyFinal = self.checkIfTrulyFinal(result)
+                    let confidence = result.bestTranscription.segments.last?.confidence ?? 0.0
+                    let currentTime = Date()
 
-                    if isFinal {
-                        self.processTranscript(transcript)
+                    // Only post partial results for UI feedback
+                    if !isFinal {
+                        NotificationCenter.default.post(
+                            name: .voiceChatTranscript,
+                            object: nil,
+                            userInfo: [
+                                "text": transcript,
+                                "speaker": "user",
+                                "wasRedacted": false,
+                                "partial": true
+                            ]
+                        )
+                    }
+
+                    if isFinal && isTrulyFinal {
+                        let timeSinceLastTranscript = currentTime.timeIntervalSince(self.lastTranscriptTimestamp)
+                        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                        print("🎯 Final transcript: \"\(transcript)\" (confidence: \(confidence), time since last: \(timeSinceLastTranscript)s)")
+                        print("🔍 Processing check: isProcessing=\(self.isProcessingTranscript), lastTranscript=\"\(self.lastProcessedTranscript)\", isEmpty=\(trimmedTranscript.isEmpty)")
+
+                        // iOS 18 Fix: Enhanced duplicate detection with timing and confidence
+                        let isDuplicate = transcript == self.lastProcessedTranscript ||
+                                        (timeSinceLastTranscript < 2.0 && confidence < 0.5) ||
+                                        trimmedTranscript.isEmpty
+
+                        if !self.isProcessingTranscript && !isDuplicate {
+                            print("✅ Processing transcript: \"\(transcript)\" (confidence: \(confidence))")
+                            self.lastTranscriptTimestamp = currentTime
+
+                            // Post final transcript for UI
+                            NotificationCenter.default.post(
+                                name: .voiceChatTranscript,
+                                object: nil,
+                                userInfo: [
+                                    "text": transcript,
+                                    "speaker": "user",
+                                    "wasRedacted": false,
+                                    "final": true
+                                ]
+                            )
+
+                            self.processTranscript(transcript)
+                            self.stopLocalSpeechRecognition()
+                            self.shouldRestartRecognition = true // Request restart after TTS
+                        } else {
+                            if isDuplicate {
+                                print("⏭️ Skipping duplicate transcript (confidence: \(confidence), time: \(timeSinceLastTranscript)s)")
+                            } else {
+                                print("⏭️ Skipping transcript - already processing")
+                            }
+                            self.stopLocalSpeechRecognition()
+                        }
+
                         NotificationCenter.default.post(name: .sttFinished, object: nil)
                     }
                 }
 
                 if let error = error {
                     print("❌ Speech recognition error: \(error)")
+                    self.isRecognitionRunning = false
                     NotificationCenter.default.post(
                         name: .voiceChatError,
                         object: nil,
@@ -811,15 +404,23 @@ extension LocalSTTTTS: URLSessionWebSocketDelegate {
             // Start recording
             let inputNode = audioEngine.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
+
+            print("🔧 Audio format: \(recordingFormat)")
+
+            // Remove any existing tap first
+            inputNode.removeTap(onBus: 0)
+
             inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
                 recognitionRequest.append(buffer)
             }
 
             audioEngine.prepare()
             try audioEngine.start()
+            isRecognitionRunning = true
 
+            print("🎤 Local speech recognition started successfully")
+            print("🔧 Audio engine running: \(audioEngine.isRunning)")
             NotificationCenter.default.post(name: .sttStarted, object: nil)
-            print("🎤 Local speech recognition started")
 
         } catch {
             print("❌ Failed to start speech recognition: \(error)")
@@ -832,9 +433,14 @@ extension LocalSTTTTS: URLSessionWebSocketDelegate {
     }
 
     func stopLocalSpeechRecognition() {
+        print("🛑 Stopping local speech recognition...")
+
         // Stop audio engine
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        if audioEngine.isRunning {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+            print("🔧 Audio engine stopped: running=\(audioEngine.isRunning)")
+        }
 
         // Finish recognition request
         recognitionRequest?.endAudio()
@@ -844,60 +450,163 @@ extension LocalSTTTTS: URLSessionWebSocketDelegate {
         recognitionTask?.cancel()
         recognitionTask = nil
 
+        isRecognitionRunning = false
         print("🛑 Local speech recognition stopped")
     }
 
-    private func processTranscript(_ transcript: String) {
-        // Send transcript to Gemini for processing
-        Task {
-            do {
-                // This would integrate with your multimodal chat or text API
-                // For now, we'll simulate a response
-                await simulateGeminiResponse(for: transcript)
-            } catch {
-                print("❌ Failed to process transcript: \(error)")
+    // iOS 18 Fix: Check if speech recognition result is truly final
+    private func checkIfTrulyFinal(_ result: SFSpeechRecognitionResult) -> Bool {
+        // Method 1: Check if speechRecognitionMetadata is not nil (recommended approach)
+        if #available(iOS 14.0, *) {
+            if result.speechRecognitionMetadata != nil {
+                return true
             }
         }
+
+        // Method 2: Check confidence scores - final results typically have confidence > 0
+        let segments = result.bestTranscription.segments
+        if !segments.isEmpty {
+            let lastSegmentConfidence = segments.last?.confidence ?? 0.0
+            let avgConfidence = segments.map { $0.confidence }.reduce(0, +) / Float(segments.count)
+
+            // Final results usually have confidence > 0.3
+            if lastSegmentConfidence > 0.3 && avgConfidence > 0.2 {
+                return true
+            }
+        }
+
+        // Method 3: Check if result has timing information (final results have timing)
+        if !result.bestTranscription.segments.isEmpty {
+            let hasTimingInfo = result.bestTranscription.segments.allSatisfy { segment in
+                segment.timestamp > 0 && segment.duration > 0
+            }
+            if hasTimingInfo {
+                return true
+            }
+        }
+
+        // Fallback: use isFinal flag but with caution
+        return result.isFinal
     }
 
-    private func simulateGeminiResponse(for transcript: String) async {
-        // Call the real Vertex AI API through WebSocket
-        await sendUserMessage(transcript)
-    }
-
-    private func sendUserMessage(_ text: String) async {
-        guard let webSocketTask = webSocketTask else {
-            print("❌ WebSocket not connected")
+    private func processTranscript(_ transcript: String) {
+        // Prevent duplicate processing
+        guard !isProcessingTranscript else {
+            print("⚠️ Already processing transcript, skipping duplicate")
             return
         }
 
-        let userMessage: [String: Any] = [
-            "client_content": [
-                "turns": [
+        isProcessingTranscript = true
+        lastProcessedTranscript = transcript
+
+        print("🗣️ Processing transcript: \"\(transcript)\"")
+
+        // Set a timeout to reset processing state if no response received
+        processingTimeout = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000) // 15 seconds
+            await MainActor.run { [weak self] in
+                if self?.isProcessingTranscript == true {
+                    print("⏰ Processing timeout - resetting state")
+                    self?.isProcessingTranscript = false
+                }
+            }
+        }
+
+        // Send transcript to Gemini for processing
+        Task {
+            await sendUserMessage(transcript)
+        }
+    }
+
+
+    private func sendUserMessage(_ text: String) async {
+        do {
+            // Get access token
+            let accessToken = try await AccessTokenProvider.shared.getAccessToken()
+
+            // Build REST API URL for Gemini
+            let modelName = "gemini-2.0-flash-exp"
+            let urlString = "https://\(VertexConfig.shared.region)-aiplatform.googleapis.com/v1/projects/\(VertexConfig.shared.projectId)/locations/\(VertexConfig.shared.region)/publishers/google/models/\(modelName):generateContent"
+
+            guard let url = URL(string: urlString) else {
+                print("❌ Invalid API URL")
+                await MainActor.run { isProcessingTranscript = false }
+                return
+            }
+
+            // Create request
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("JarvisVertexAI-LocalSTTTTS/1.0", forHTTPHeaderField: "User-Agent")
+            request.timeoutInterval = 30.0
+
+            // Create request body
+            let requestBody: [String: Any] = [
+                "contents": [
                     [
                         "role": "user",
                         "parts": [
-                            [
-                                "text": text
-                            ]
+                            ["text": text]
                         ]
                     ]
                 ],
-                "turn_complete": true
+                "generationConfig": [
+                    "temperature": 0.7,
+                    "topP": 0.8,
+                    "topK": 40,
+                    "maxOutputTokens": 2048
+                ],
+                "safetySettings": [
+                    ["category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"],
+                    ["category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"],
+                    ["category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"],
+                    ["category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"]
+                ]
             ]
-        ]
 
-        guard let data = try? JSONSerialization.data(withJSONObject: userMessage) else {
-            print("❌ Failed to serialize message")
-            return
-        }
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
-        let message = URLSessionWebSocketTask.Message.data(data)
-        do {
-            try await webSocketTask.send(message)
-            print("📤 Sent message to Vertex AI: \(text)")
+            print("📤 Sending REST API request to Gemini: \(text)")
+
+            // Send request
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            // Check response
+            if let httpResponse = response as? HTTPURLResponse {
+                print("📡 Gemini API Response: \(httpResponse.statusCode)")
+
+                if httpResponse.statusCode == 200 {
+                    // Parse response
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let candidates = json["candidates"] as? [[String: Any]],
+                       let content = candidates.first?["content"] as? [String: Any],
+                       let parts = content["parts"] as? [[String: Any]],
+                       let responseText = parts.first?["text"] as? String {
+
+                        print("✅ Received Gemini response: \(responseText.prefix(100))...")
+                        await MainActor.run {
+                            handleTextResponse(responseText)
+                        }
+                    } else {
+                        print("❌ Failed to parse Gemini response")
+                        await MainActor.run { isProcessingTranscript = false }
+                    }
+                } else {
+                    print("❌ Gemini API error: \(httpResponse.statusCode)")
+                    if let errorData = String(data: data, encoding: .utf8) {
+                        print("❌ Error details: \(errorData)")
+                    }
+                    await MainActor.run { isProcessingTranscript = false }
+                }
+            }
+
         } catch {
-            print("❌ Failed to send WebSocket message: \(error)")
+            print("❌ Failed to send REST API request: \(error)")
+            await MainActor.run {
+                isProcessingTranscript = false
+            }
         }
     }
 
@@ -1105,6 +814,8 @@ extension LocalSTTTTS: AVSpeechSynthesizerDelegate {
         print("🔇 TTS finished speaking")
         currentUtterance = nil
         NotificationCenter.default.post(name: .ttsFinished, object: nil)
+
+        // Note: No automatic restart after TTS - UI controls speech recognition lifecycle
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didPause utterance: AVSpeechUtterance) {

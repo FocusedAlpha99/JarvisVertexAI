@@ -224,7 +224,7 @@ class AudioModeViewModel: ObservableObject {
     }
 
     func playAudioData(_ data: Data) {
-        let wavData = createWAVData(from: data, sampleRate: 16000, channels: 1)
+        let wavData = createWAVData(from: data, sampleRate: 24000, channels: 1)  // Gemini Live API output is 24 kHz
         do {
             audioPlayer = try AVAudioPlayer(data: wavData)
             audioPlayer?.play()

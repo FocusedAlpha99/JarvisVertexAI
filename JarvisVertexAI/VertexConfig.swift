@@ -123,6 +123,8 @@ final class VertexConfig {
             "./.env.local",
             "./.env",
             "./JarvisVertexAI/.env.local",
+            // Absolute path to project directory
+            "/Users/tim/JarvisVertexAI/.env.local",
             // Also support non-hidden resource copies for Simulator packaging
             Bundle.main.path(forResource: "env", ofType: "local"),
             Bundle.main.bundlePath + "/env.local",
@@ -131,14 +133,18 @@ final class VertexConfig {
             Bundle.main.bundlePath + "/.env.local"
         ]
 
+        print("🔍 DEBUG: Searching for .env.local file...")
         for path in possiblePaths {
             guard let path = path else { continue }
             let expandedPath = NSString(string: path).expandingTildeInPath
+            print("🔍 Checking: \(expandedPath)")
             if FileManager.default.fileExists(atPath: expandedPath) {
+                print("✅ Found .env.local at: \(expandedPath)")
                 return expandedPath
             }
         }
 
+        print("❌ No .env.local file found in any of the checked paths")
         return nil
     }
 

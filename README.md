@@ -8,17 +8,23 @@ A three-mode conversational AI iOS application leveraging Google Vertex AI's Gem
 
 ### Three Conversation Modes
 
-#### Mode 1: Native Audio (Gemini Live API)
-- Direct audio streaming to Vertex AI
-- Zero data retention with CMEK encryption
-- Real-time voice conversations
-- No audio storage or transcripts saved
+#### Mode 1: Native Audio (Gemini Live API) ⭐ **2025 Enhanced**
+- **Real-time bidirectional voice streaming** using Gemini Live API
+- **Zero data retention** with enterprise-grade privacy controls
+- **Protocol compliant**: 16kHz input, 24kHz output per API specification
+- **Intelligent error handling**: Proper WebSocket close code handling (1000, 1001, 1011)
+- **Robust reconnection**: Exponential backoff with quota-aware retry logic
+- **setupComplete protocol**: Proper session acknowledgment before audio streaming
+- **CMEK & VPC-SC ready**: Customer-managed encryption and network isolation
+- **Production reliability**: Complete session state management and recovery
 
-#### Mode 2: Voice Chat Local
+#### Mode 2: Voice Chat Local (Hold-to-Speak)
+- Hold-to-speak button interface for precise control
 - 100% on-device speech recognition (iOS Speech framework)
-- Text-only API calls to Gemini
-- Local TTS synthesis
+- Direct Gemini REST API integration (text-only)
+- Local TTS synthesis with iOS AVSpeechSynthesizer
 - PHI automatically redacted before transmission
+- Professional UI with real-time visual feedback
 
 #### Mode 3: Text + Multimodal
 - Keyboard input with file attachments
@@ -44,6 +50,23 @@ Minimal-scope OAuth integration for:
 - Google Calendar (read-only)
 - Gmail (read-only)
 - Google Drive (app-created files only)
+
+## 🚀 Recent Improvements (September 2025)
+
+### Mode 1: Gemini Live API Enhanced Reliability
+- ✅ **Audio Format Compliance**: Fixed to proper 16kHz input, 24kHz output per API spec
+- ✅ **Protocol Compliance**: Updated message format to camelCase field naming
+- ✅ **setupComplete Protocol**: Proper session acknowledgment before audio streaming
+- ✅ **WebSocket Error Handling**: Intelligent close code handling (1000, 1001, 1011)
+- ✅ **Reconnection Logic**: Exponential backoff with quota-aware retry strategies
+- ✅ **Session Management**: Complete state cleanup and reliable re-initiation
+- ✅ **Production Ready**: Comprehensive error recovery and connection stability
+
+### Cross-Mode Improvements
+- ✅ **PHI Redaction**: Enhanced pattern detection with medical context awareness
+- ✅ **Token Management**: Automatic OAuth token refresh with retry logic
+- ✅ **Database Security**: Enhanced encryption and privacy controls
+- ✅ **Test Coverage**: Comprehensive test suite for all privacy and compliance scenarios
 
 ## 📋 Requirements
 

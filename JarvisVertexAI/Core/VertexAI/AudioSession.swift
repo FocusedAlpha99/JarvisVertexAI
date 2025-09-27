@@ -58,15 +58,27 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
     private var terminating = false
 
     // Audio configuration (Gemini Live API optimized)
-    private let targetInputSampleRate: Double = 16_000
-    private let outputSampleRate: Double = 24_000
+    private let targetInputSampleRate: Double = 16_000  // Gemini Live API requires 16 kHz input
+    private let outputSampleRate: Double = 24_000       // Gemini Live API returns 24 kHz output
     private let channelCount: Int = 1
-    private let captureBufferSize: UInt32 = 4096  // tap buffer size; converter consolidates to target chunking
-    private let chunkFrameCount: Int = 16_384
+    private let captureBufferSize: UInt32 = 4096  // tap buffer size
+    private let chunkFrameCount: Int = 960       // ~40ms at 24 kHz
     private let bytesPerSample = 2
     private var currentInputSampleRate: Double = 0
     private var audioConverter: AVAudioConverter?
     private var pcmChunkAccumulator = Data()
+
+    // Minimal VAD with hysteresis (continuous mode)
+    private var vadCalibrating = true
+    private var vadCalibrationFrames = 12  // ~480ms at 40ms per frame
+    private var vadAmbientSum: Double = 0
+    private var vadAmbientCount: Int = 0
+    private var vadThreshold: Double = 0.02
+    private var vadConsecAbove = 0
+    private var vadConsecBelow = 0
+    private let vadStartFrames = 3  // ~120ms
+    private let vadEndFrames = 10   // ~400ms
+    private var inUtterance = false
 
     // Voice Activity Detection (silence handling for turn completion)
     private var silenceStartTime: Date?
@@ -89,12 +101,8 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
     private var vadEventsLog: [(Date, String, Float)] = []
     private var webSocketHealthMetrics = WebSocketHealthMetrics()
 
-    // Audio playback (streaming via AVAudioEngine)
-    private var playbackEngine: AVAudioEngine?
-    private var playbackNode: AVAudioPlayerNode?
-    private var playbackConverter: AVAudioConverter?
-    private var playbackInputFormat: AVAudioFormat?
-    private var playbackOutputFormat: AVAudioFormat?
+    // Audio playback (simple AVAudioPlayer with WAV wrapping for stability)
+    private var audioPlayer: AVAudioPlayer?
     // Playback tail and turn guards removed for responsiveness
 
     // Live API configuration with privacy settings
@@ -430,7 +438,51 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
         isActive = false
         isConnected = false
         stopHeartbeat()
+
+        // Clean up session state for proper re-initiation
+        currentSessionId = nil
+        sessionResumeHandle = nil
+        setupCompletionTime = nil
+
+        // Clean up audio engine state
+        if audioEngine.isRunning {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
+
+        // Clean up WebSocket
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        webSocketTask = nil
+
         NotificationCenter.default.post(name: NSNotification.Name("audioSessionDisconnected"), object: nil)
+        print("🧹 Connection state cleaned up after disconnection")
+    }
+
+    private func attemptReconnectionIfNeeded() async {
+        guard connectionAttempts < maxRetryAttempts else {
+            print("❌ Max reconnection attempts (\(maxRetryAttempts)) reached - giving up")
+            return
+        }
+
+        connectionAttempts += 1
+        print("🔄 Reconnection attempt \(connectionAttempts)/\(maxRetryAttempts)")
+
+        do {
+            // Full re-initiation with proper setup acknowledgment wait
+            try await connect()
+            connectionAttempts = 0 // Reset on success
+        } catch {
+            print("❌ Reconnection attempt \(connectionAttempts) failed: \(error)")
+
+            if connectionAttempts < maxRetryAttempts {
+                let backoffTime = min(retryDelay * pow(2.0, Double(connectionAttempts)), maxRetryDelay)
+                print("⏳ Waiting \(String(format: "%.1f", backoffTime)) seconds before next attempt")
+                try? await Task.sleep(nanoseconds: UInt64(backoffTime * 1_000_000_000))
+                await attemptReconnectionIfNeeded()
+            } else {
+                print("❌ All reconnection attempts exhausted - session permanently disconnected")
+            }
+        }
     }
 
     private func startHeartbeat() {
@@ -488,9 +540,9 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
             config["session_resumption"] = [:]
         }
 
-        config["realtime_input_config"] = [
+        config["realtimeInputConfig"] = [
             // Enable server VAD but we still send explicit audio_stream_end
-            "automatic_activity_detection": [
+            "automaticActivityDetection": [
                 "disabled": false
             ]
         ]
@@ -503,7 +555,6 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
         try await webSocketTask?.send(message)
         lastActivityTime = Date()
         print("✅ Vertex AI Live API configuration sent")
-        print("📋 Setup: \(setupMessage)")
 
         postSetupGraceUntil = Date().addingTimeInterval(2.0)
         print("⏳ Waiting for setup completion from API...")
@@ -652,6 +703,13 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
         }
 
         pcmChunkAccumulator.removeAll(keepingCapacity: true)
+        // Reset VAD state each session start
+        vadCalibrating = true
+        vadAmbientSum = 0
+        vadAmbientCount = 0
+        vadConsecAbove = 0
+        vadConsecBelow = 0
+        inUtterance = false
 
         if isTapInstalled {
             audioEngine.inputNode.removeTap(onBus: 0)
@@ -721,6 +779,62 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
               let data = convertedBuffer.toPCMData(),
               !data.isEmpty else {
             return
+        }
+
+        // Mute mic while TTS is playing to avoid echo
+        if audioPlayer?.isPlaying == true { return }
+
+        // VAD on 40ms frames: compute RMS on converted (16k) buffer
+        let rms = rmsOfPCM16(buffer: convertedBuffer)
+        if vadCalibrating {
+            if vadCalibrationFrames > 0 {
+                vadAmbientSum += rms
+                vadAmbientCount += 1
+                vadCalibrationFrames -= 1
+                if vadCalibrationFrames == 0 {
+                    let ambient = vadAmbientCount > 0 ? (vadAmbientSum / Double(vadAmbientCount)) : 0.0
+                    vadThreshold = max(ambient * 3.0, 0.01)
+                    vadCalibrating = false
+                    if VertexConfig.shared.debugLogging {
+                        print("🎛️ VAD calibrated: ambient=\(String(format: "%.4f", ambient)) threshold=\(String(format: "%.4f", vadThreshold))")
+                    }
+                }
+            }
+        }
+
+        if !vadCalibrating {
+            if rms > vadThreshold {
+                vadConsecAbove += 1
+                vadConsecBelow = 0
+            } else {
+                vadConsecBelow += 1
+                vadConsecAbove = 0
+            }
+
+            if !inUtterance && vadConsecAbove >= vadStartFrames {
+                inUtterance = true
+                sentAudioSinceLastStreamEnd = true
+                hasSentStreamEnd = false
+                if VertexConfig.shared.debugLogging {
+                    print("🗣️ VAD: Speech start (rms=\(String(format: "%.4f", rms)))")
+                }
+            }
+
+            if inUtterance && vadConsecBelow >= vadEndFrames && sentAudioSinceLastStreamEnd && hasSentStreamEnd == false {
+                if VertexConfig.shared.debugLogging {
+                    print("🛑 VAD: Speech end (rms=\(String(format: "%.4f", rms)))")
+                }
+                // Flush pending data then end turn (offload to async task)
+                Task { [weak self] in
+                    if let flushTask = self?.flushPendingAudio(sync: true) {
+                        await flushTask.value
+                    }
+                    await self?.sendAudioStreamEnd()
+                }
+                inUtterance = false
+                vadConsecBelow = 0
+                vadConsecAbove = 0
+            }
         }
 
         audioQueue.async { [weak self] in
@@ -832,10 +946,10 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
         sentAudioSinceLastStreamEnd = true
 
         let message: [String: Any] = [
-            "realtime_input": [
-                "media_chunks": [
+            "realtimeInput": [
+                "mediaChunks": [
                     [
-                        "mime_type": "audio/pcm;rate=16000",
+                        "mimeType": "audio/pcm;rate=16000",
                         "data": data.base64EncodedString()
                     ]
                 ]
@@ -876,6 +990,18 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
         return sum / Float(frameLength)
     }
 
+    private func rmsOfPCM16(buffer: AVAudioPCMBuffer) -> Double {
+        guard let ch = buffer.int16ChannelData?.pointee else { return 0 }
+        let n = Int(buffer.frameLength)
+        if n == 0 { return 0 }
+        var acc: Double = 0
+        for i in 0..<n {
+            let v = Double(ch[i]) / Double(Int16.max)
+            acc += v * v
+        }
+        return sqrt(acc / Double(n))
+    }
+
     private func sendAudioStreamEnd(force: Bool = false) async {
         if !force {
             guard isActive else { return }
@@ -889,8 +1015,8 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
 
         hasSentStreamEnd = true
         let message: [String: Any] = [
-            "realtime_input": [
-                "audio_stream_end": true
+            "realtimeInput": [
+                "audioStreamEnd": true
             ]
         ]
 
@@ -914,83 +1040,54 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
         }
     }
 
-    // MARK: - Audio Playback (Streaming)
-
-    private func ensurePlaybackEngine() {
-        if playbackEngine == nil || playbackNode == nil {
-            let engine = AVAudioEngine()
-            let node = AVAudioPlayerNode()
-            engine.attach(node)
-            // Use the mixer output format (typically Float32 at 44.1/48 kHz)
-            let mixerFormat = engine.mainMixerNode.outputFormat(forBus: 0)
-            engine.connect(node, to: engine.mainMixerNode, format: mixerFormat)
-            do {
-                try engine.start()
-                playbackEngine = engine
-                playbackNode = node
-                // Prepare converter from 24 kHz Int16 mono -> mixer format
-                playbackInputFormat = AVAudioFormat(commonFormat: .pcmFormatInt16,
-                                                   sampleRate: outputSampleRate,
-                                                   channels: 1,
-                                                   interleaved: false)
-                playbackOutputFormat = mixerFormat
-                if let inFmt = playbackInputFormat {
-                    playbackConverter = AVAudioConverter(from: inFmt, to: mixerFormat)
-                }
-                print("✅ Playback engine started for 24 kHz PCM")
-            } catch {
-                print("❌ Failed to start playback engine: \(error)")
-                playbackEngine = nil
-                playbackNode = nil
-            }
-        }
-    }
+    // MARK: - Audio Playback (Stable WAV path)
 
     private func playAudio(_ base64Audio: String) {
         guard let audioData = Data(base64Encoded: base64Audio) else { return }
-        ensurePlaybackEngine()
-        guard let node = playbackNode,
-              let inFmt = playbackInputFormat,
-              let outFmt = playbackOutputFormat,
-              let converter = playbackConverter else { return }
-
-        // Build input Int16 buffer at 24 kHz mono
-        let inFrames = AVAudioFrameCount(audioData.count / 2)
-        guard let inBuffer = AVAudioPCMBuffer(pcmFormat: inFmt, frameCapacity: inFrames) else { return }
-        inBuffer.frameLength = inFrames
-        audioData.withUnsafeBytes { rawPtr in
-            guard let src = rawPtr.bindMemory(to: Int16.self).baseAddress,
-                  let dst = inBuffer.int16ChannelData?.pointee else { return }
-            dst.assign(from: src, count: Int(inFrames))
+        // Wrap raw PCM (24 kHz mono 16-bit) as a WAV for AVAudioPlayer
+        let wavData = createWAVData(from: audioData, sampleRate: Int(outputSampleRate), channels: 1)
+        do {
+            audioPlayer = try AVAudioPlayer(data: wavData)
+            audioPlayer?.prepareToPlay()
+            audioPlayer?.play()
+            print("🔊 Playing native audio response (\(audioData.count) bytes)")
+        } catch {
+            print("❌ Audio playback failed: \(error)")
         }
+    }
 
-        // Estimate output frames for converter
-        let ratio = outFmt.sampleRate / inFmt.sampleRate
-        let outCapacity = AVAudioFrameCount(Double(inFrames) * ratio) + 1
-        guard let outBuffer = AVAudioPCMBuffer(pcmFormat: outFmt, frameCapacity: outCapacity) else { return }
+    private func createWAVData(from pcmData: Data, sampleRate: Int, channels: Int) -> Data {
+        var data = Data()
+        let bitsPerSample: UInt16 = 16
+        let byteRate = UInt32(sampleRate * channels * Int(bitsPerSample) / 8)
+        let blockAlign: UInt16 = UInt16(channels * Int(bitsPerSample) / 8)
+        let fileSize = UInt32(36 + pcmData.count)
 
-        var error: NSError?
-        var provided = false
-        converter.convert(to: outBuffer, error: &error) { _, outStatus in
-            if provided {
-                outStatus.pointee = .noDataNow
-                return nil
-            }
-            provided = true
-            outStatus.pointee = .haveData
-            return inBuffer
-        }
-        if let error = error {
-            print("⚠️ Playback convert error: \(error)")
-            return
-        }
-        if outBuffer.frameLength == 0 {
-            return
-        }
+        // RIFF header
+        data.append("RIFF".data(using: .ascii)!)
+        data.append(withUnsafeBytes(of: fileSize.littleEndian) { Data($0) })
+        data.append("WAVE".data(using: .ascii)!)
 
-        if !node.isPlaying { node.play() }
-        node.scheduleBuffer(outBuffer, completionHandler: nil)
-        print("🔊 Queued native audio chunk (\(audioData.count) bytes)")
+        // fmt chunk
+        data.append("fmt ".data(using: .ascii)!)
+        let chunkSize: UInt32 = 16
+        data.append(withUnsafeBytes(of: chunkSize.littleEndian) { Data($0) })
+        let audioFormat: UInt16 = 1 // PCM
+        data.append(withUnsafeBytes(of: audioFormat.littleEndian) { Data($0) })
+        let channelsUInt16 = UInt16(channels)
+        data.append(withUnsafeBytes(of: channelsUInt16.littleEndian) { Data($0) })
+        let sampleRateUInt32 = UInt32(sampleRate)
+        data.append(withUnsafeBytes(of: sampleRateUInt32.littleEndian) { Data($0) })
+        data.append(withUnsafeBytes(of: byteRate.littleEndian) { Data($0) })
+        data.append(withUnsafeBytes(of: blockAlign.littleEndian) { Data($0) })
+        data.append(withUnsafeBytes(of: bitsPerSample.littleEndian) { Data($0) })
+
+        // data chunk
+        data.append("data".data(using: .ascii)!)
+        let dataSize = UInt32(pcmData.count)
+        data.append(withUnsafeBytes(of: dataSize.littleEndian) { Data($0) })
+        data.append(pcmData)
+        return data
     }
 
     // MARK: - Token Management
@@ -1037,14 +1134,7 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         urlSession?.invalidateAndCancel()
 
-        if let node = playbackNode, node.isPlaying {
-            node.stop()
-        }
-        if let engine = playbackEngine {
-            engine.stop()
-        }
-        playbackNode = nil
-        playbackEngine = nil
+        audioPlayer?.stop()
         stopHeartbeat()
 
         // Clear sensitive data
@@ -1075,7 +1165,7 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
         print("🔍 AUDIO CONFIG: Category: \(session.category), mode: \(session.mode)")
         print("🔍 AUDIO CONFIG: Available inputs: \(session.availableInputs?.count ?? 0)")
         #endif
-        print("🔍 TARGET CONFIG: Input \(Int(targetInputSampleRate))Hz → Output \(Int(outputSampleRate))Hz")
+        print("🔍 TARGET CONFIG: Input \(Int(targetInputSampleRate))Hz → Output \(Int(outputSampleRate))Hz (per Gemini Live API spec)")
 
         // CRITICAL: Log byte order for debugging audio comprehension issues
         let testValue: Int16 = 0x1234
@@ -1133,7 +1223,48 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
     
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
         print("❌ WebSocket connection closed. Code: \(closeCode.rawValue)")
-        handleDisconnection()
+
+        if let reason = reason, let reasonString = String(data: reason, encoding: .utf8) {
+            print("📝 Disconnect reason: \(reasonString)")
+        }
+
+        // Handle different close codes appropriately per Gemini Live API best practices
+        switch closeCode {
+        case .normalClosure: // 1000
+            print("✅ Normal closure - session ended cleanly")
+            handleDisconnection()
+
+        case .goingAway: // 1001
+            print("⚠️ Server going away - will attempt reconnection")
+            handleDisconnection()
+            Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 second delay
+                await attemptReconnectionIfNeeded()
+            }
+
+        case .internalServerError: // 1011 - Common with Gemini quota/overload
+            print("⚠️ Server internal error (1011) - likely quota/overload issue")
+            handleDisconnection()
+            Task {
+                // Exponential backoff for server overload
+                let backoffTime = min(pow(2.0, Double(connectionAttempts)) * 5.0, 120.0)
+                print("⏳ Backing off for \(String(format: "%.1f", backoffTime)) seconds due to server overload")
+                try? await Task.sleep(nanoseconds: UInt64(backoffTime * 1_000_000_000))
+                await attemptReconnectionIfNeeded()
+            }
+
+        case .protocolError, .unsupportedData: // 1002, 1003 - Client errors
+            print("❌ Protocol/data error - likely client implementation issue")
+            handleDisconnection()
+            // Don't auto-reconnect for client errors
+
+        default:
+            print("⚠️ Unexpected close code: \(closeCode.rawValue) - attempting reconnection")
+            handleDisconnection()
+            Task {
+                await attemptReconnectionIfNeeded()
+            }
+        }
     }
     
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
