@@ -192,7 +192,11 @@ class AudioModeViewModel: ObservableObject {
     @Published var statusMessage = "Tap to start private conversation"
     @Published var currentSession: AudioSessionInfo?
     @Published var isRecording = false
+    @Published var connectionState: ConnectionState = .disconnected
     let audioLevelPublisher = PassthroughSubject<CGFloat, Never>()
+
+    // Use the AudioConnectionState from the Core AudioSession
+    typealias ConnectionState = AudioConnectionState
     
     private let dbManager = SimpleDataManager.shared
     private var audioLevelTimer: Timer?
@@ -207,7 +211,16 @@ class AudioModeViewModel: ObservableObject {
     }
     
     init() {
-        // Listen to actual audio level notifications from AudioSession
+        // Listen to AudioSession connection state changes
+        AudioSession.shared.connectionStatePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                self?.connectionState = state
+                self?.handleConnectionStateChange(state)
+            }
+            .store(in: &cancellables)
+
+        // Legacy notification support for backward compatibility
         NotificationCenter.default.publisher(for: NSNotification.Name("audioSessionConnected"))
             .receive(on: DispatchQueue.main)
             .sink { _ in
@@ -228,6 +241,38 @@ class AudioModeViewModel: ObservableObject {
             }
             .store(in: &cancellables)
     }
+
+    private func handleConnectionStateChange(_ state: ConnectionState) {
+        switch state {
+        case .disconnected:
+            isRecording = false
+            statusMessage = "Tap to start private conversation"
+            currentSession = nil
+            audioLevelTimer?.invalidate()
+            audioLevelTimer = nil
+
+        case .connecting:
+            statusMessage = "Connecting to Gemini Live API..."
+
+        case .connected:
+            isRecording = true
+            statusMessage = "Connected! (Zero data retention active)"
+            startAudioLevelMonitoring()
+
+            // Create session info if we don't have one
+            if currentSession == nil {
+                let sessionId = UUID().uuidString
+                currentSession = AudioSessionInfo(id: sessionId, startTime: Date())
+            }
+
+        case .error(let message):
+            isRecording = false
+            statusMessage = "Error: \(message)"
+            currentSession = nil
+            audioLevelTimer?.invalidate()
+            audioLevelTimer = nil
+        }
+    }
     
     func toggleRecording() {
         if isRecording {
@@ -240,22 +285,11 @@ class AudioModeViewModel: ObservableObject {
     func startRecording() {
         Task {
             do {
-                await MainActor.run {
-                    statusMessage = "Connecting to Gemini Live API..."
-                }
-
-                // Use new Gemini Live API connection
-                try await AudioSession.shared.connect(projectId: "finzoo", region: "us-central1", endpointId: "")
-
-                let sessionId = UUID().uuidString
-                await MainActor.run {
-                    currentSession = AudioSessionInfo(id: sessionId, startTime: Date())
-                }
-
+                // The connection state publisher will handle UI updates
+                try await AudioSession.shared.connect()
             } catch {
-                await MainActor.run {
-                    handleAudioError(error)
-                }
+                print("❌ Failed to start recording: \(error)")
+                handleAudioError(error)
             }
         }
     }

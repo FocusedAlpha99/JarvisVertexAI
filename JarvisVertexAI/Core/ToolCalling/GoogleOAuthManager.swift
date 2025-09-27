@@ -14,14 +14,23 @@ class GoogleOAuthManager: NSObject, ObservableObject {
     private let keychain = KeychainManager()
     private let phiRedactor = PHIRedactor.shared
     
-    // Personal Assistant scopes - full Gmail access for reading, composing, and sending
+    // 2025-Compliant Personal Assistant scopes - Full Google Workspace access
     private let personalAssistantScopes = [
-        "https://www.googleapis.com/auth/tasks.readonly",       // Read-only Tasks
-        "https://www.googleapis.com/auth/calendar.events.readonly", // Read-only Calendar
-        "https://www.googleapis.com/auth/gmail.readonly",       // Read Gmail messages and metadata
-        "https://www.googleapis.com/auth/gmail.compose",        // Compose and send emails
-        "https://www.googleapis.com/auth/gmail.modify",         // Mark as read, archive, delete
-        "https://www.googleapis.com/auth/drive.file"           // Only files created by app
+        // Gmail - Full access (2025 compliant - includes read, compose, send, delete)
+        "https://mail.google.com/",
+
+        // Google Calendar - Full read/write access to all calendars
+        "https://www.googleapis.com/auth/calendar",
+
+        // Google Tasks - Full access (create, read, update, delete tasks and lists)
+        "https://www.googleapis.com/auth/tasks",
+
+        // Google Drive - Full access to all Drive files
+        "https://www.googleapis.com/auth/drive",
+
+        // Additional profile access for user information
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "https://www.googleapis.com/auth/userinfo.email"
     ]
     
     struct UserConsent: Codable {
@@ -472,7 +481,7 @@ class GoogleOAuthManager: NSObject, ObservableObject {
         return DriveFileResult(
             id: file.id,
             name: file.name,
-            size: file.size,
+            size: file.sizeInt,
             mimeType: file.mimeType,
             createdTime: file.createdTime,
             webViewLink: file.webViewLink
@@ -510,7 +519,7 @@ class GoogleOAuthManager: NSObject, ObservableObject {
             DriveFileResult(
                 id: file.id,
                 name: file.name,
-                size: file.size,
+                size: file.sizeInt,
                 mimeType: file.mimeType,
                 createdTime: file.createdTime,
                 webViewLink: file.webViewLink

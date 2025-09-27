@@ -8,6 +8,15 @@
 
 import Foundation
 import AVFoundation
+import Combine
+
+// MARK: - Connection State
+enum AudioConnectionState {
+    case disconnected
+    case connecting
+    case connected
+    case error(String)
+}
 
 // MARK: - Errors
 
@@ -19,6 +28,11 @@ enum AudioSessionError: Error {
 }
 
 final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDelegate {
+
+    // MARK: - Properties
+
+    static let shared = AudioSession()
+    let connectionStatePublisher = PassthroughSubject<AudioConnectionState, Never>()
 
     // MARK: - AVAudioPlayerDelegate
 
@@ -60,10 +74,6 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
         }
         #endif
     }
-
-    // MARK: - Properties
-
-    static let shared = AudioSession()
 
     private var webSocketTask: URLSessionWebSocketTask? 
     private var urlSession: URLSession?
@@ -225,6 +235,7 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
 
     /// Connect with default VertexConfig settings (called from AudioModeView)
     func connect() async throws {
+        connectionStatePublisher.send(.connecting)
         print("📍 STEP 1: AudioSession.connect() called from UI")
         PersistentLogger.shared.logVertex(.info, "STEP 1: UI requested AudioSession.connect()")
 
@@ -241,6 +252,7 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
         // For Live WS we allow proceeding with API key even if broader Vertex config is not complete
         guard hasApiKey || hasGeneralConfig else {
             print("🚨 STEP 2 FAILED: No valid authentication found (API key or access token)")
+            connectionStatePublisher.send(.error("No valid authentication found"))
             throw AudioSessionError.connectionFailed
         }
 
@@ -484,6 +496,7 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
     private func handleDisconnection() {
         isActive = false
         isConnected = false
+        connectionStatePublisher.send(.disconnected)
         stopHeartbeat()
 
         // Clean up session state for proper re-initiation
@@ -508,6 +521,7 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
     private func attemptReconnectionIfNeeded() async {
         guard connectionAttempts < maxRetryAttempts else {
             print("❌ Max reconnection attempts (\(maxRetryAttempts)) reached - giving up")
+            connectionStatePublisher.send(.error("Max reconnection attempts reached"))
             return
         }
 
@@ -1334,6 +1348,7 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
         connectionAttempts = 0
         retryDelay = 1.0
         lastActivityTime = Date()
+        connectionStatePublisher.send(.connected)
         startHeartbeat()
 
         Task {

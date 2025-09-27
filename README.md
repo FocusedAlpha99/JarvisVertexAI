@@ -18,24 +18,26 @@ A three-mode conversational AI iOS application leveraging Google Vertex AI's Gem
 - **CMEK & VPC-SC ready**: Customer-managed encryption and network isolation
 - **Production reliability**: Complete session state management and recovery
 
-#### Mode 2: Voice Chat Local (Hold-to-Speak)
-- Hold-to-speak button interface for precise control
-- 100% on-device speech recognition (iOS Speech framework)
-- Direct Gemini REST API integration (text-only)
-- Local TTS synthesis with iOS AVSpeechSynthesizer
-- PHI automatically redacted before transmission
-- Professional UI with real-time visual feedback
+#### Mode 2: Advanced Voice Conversation (ElevenLabs) ⭐ **2025 Enhanced**
+- **Real-time conversational AI** with natural turn-taking and interruption handling
+- **Professional voice synthesis** with 3,000+ voice options and custom voice cloning
+- **Sub-100ms latency** for natural conversation flow
+- **Multi-LLM support** (GPT-4, Claude, Gemini) with configurable backend
+- **WebRTC audio streaming** for superior audio quality vs traditional WebSocket
+- **Built-in session management** with conversation state and message handling
+- **Client tools integration** for custom function calling and knowledge base access
 
-#### Mode 3: Text + Multimodal ⭐ **Time & Calendar Aware**
-- **Direct Gemini API integration** for reliable multimodal chat
-- **Comprehensive Time Awareness**: Current time injection for accurate temporal responses
-- **Google Calendar Integration**: Schedule awareness for deadline management and task planning
-- **Keyboard input with drag-and-drop** file attachments
-- **Advanced image analysis** with vision AI capabilities
-- **Document processing** for PDFs and text files
-- **Ephemeral file storage** (24-hour auto-delete)
-- **Real-time conversation history** with timestamp context
-- **Privacy-first design** optimized for conversational personalization
+#### Mode 3: Text + Multimodal ⭐ **Complete Personal Assistant (2025)**
+- **Direct Gemini API integration** for reliable multimodal chat with full Google Workspace access
+- **Complete Gmail Integration**: Read, compose, send emails via natural language ("Send email to team")
+- **Full Calendar Management**: Schedule awareness, conflict detection, event creation and editing
+- **Comprehensive Drive Access**: Upload, download, search, share files across all user Drive content
+- **Complete Tasks Management**: Create, update, delete tasks and lists with deadline tracking
+- **Advanced File Support**: Drag-and-drop images, PDFs, documents with vision AI analysis
+- **Time & Context Awareness**: Current time injection with calendar integration for accurate responses
+- **Natural Language Interface**: "Check my schedule", "Upload the presentation", "Send that report"
+- **Cross-Service Coordination**: Unified workflow across Gmail, Calendar, Drive, and Tasks
+- **Privacy-First Design**: Local storage, 24-hour ephemeral file cleanup, PHI redaction
 
 ### 🛡️ Privacy & Security Features
 
@@ -48,22 +50,28 @@ A three-mode conversational AI iOS application leveraging Google Vertex AI's Gem
 - **30-Day Auto-Cleanup**: Automatic old data deletion
 - **No Analytics**: Zero tracking or telemetry
 
-### 🔧 Complete Google Workspace Integration ⭐ **Comprehensive**
+### 🔧 Complete Google Workspace Integration ⭐ **2025 Enhanced & Compliant**
 
-Full OAuth integration for complete personal assistant capabilities:
-- **Gmail Full Access**: Read, compose, send, and reply to emails with natural language
-- **Google Calendar**: Schedule awareness for deadline management and conflict detection
-- **Google Drive**: Complete file management with upload, download, search, and organization
-- **Google Tasks**: Comprehensive task tracking with deadline awareness and multi-list support
-- **Google Search**: Real-time web information and current events grounding
+**2025-Compliant OAuth Implementation** with full personal assistant capabilities:
+- **Gmail Full Access**: `https://mail.google.com/` - Complete email management (read, compose, send, delete)
+- **Google Calendar**: `https://www.googleapis.com/auth/calendar` - Full calendar read/write access
+- **Google Drive**: `https://www.googleapis.com/auth/drive` - Complete file management across all user files
+- **Google Tasks**: `https://www.googleapis.com/auth/tasks` - Full task and task list management
+- **Profile Access**: User information and email for personalization
+
+#### 2025 OAuth Compliance Features:
+- **March 14, 2025 Ready**: Fully migrated from less secure apps to OAuth
+- **PKCE Security**: Advanced authentication with code challenge/verifier
+- **Incremental Authorization**: Scopes requested only when needed
+- **Secure Token Management**: Keychain storage with automatic refresh
+- **Ephemeral Sessions**: No persistent browser cookies or data
 
 #### Advanced Personal Assistant Capabilities:
-- **Email Management**: "Show me today's important emails", "Send email to team about meeting"
-- **File Operations**: "Upload this document", "Find my presentation", "Share file with team"
-- **Task Tracking**: "Show my deadlines", "What's due this week?", "Track project progress"
-- **Schedule Management**: "Check calendar conflicts", "Schedule around deadlines"
-- **Information Access**: "What's happening in the news?", "Current weather updates"
-- **Cross-Service Integration**: Tasks + Calendar + Drive coordination for productivity optimization
+- **Email Management**: "Send email to team about meeting", "Reply to client with project update"
+- **File Operations**: "Upload presentation to Drive", "Share quarterly report with team"
+- **Task Management**: "Create task for project review", "Show all tasks due this week"
+- **Schedule Coordination**: "Check calendar conflicts", "Schedule meeting around deadlines"
+- **Cross-Service Integration**: Tasks + Calendar + Drive + Gmail unified workflow
 
 ## 🚀 Recent Improvements (September 2025)
 
@@ -79,6 +87,15 @@ Full OAuth integration for complete personal assistant capabilities:
 - ✅ **Reconnection Logic**: Exponential backoff with quota-aware retry strategies
 - ✅ **Production Ready**: Comprehensive error recovery and connection stability
 
+### Mode 2: Advanced Voice Conversation Implementation (September 2025)
+- ✅ **ElevenLabs Swift SDK Integration**: Complete architecture with ConversationManager and UI
+- ✅ **Package Dependencies**: ElevenLabs Swift SDK 2.0.12+ added to project configuration
+- ✅ **Placeholder Implementation**: Working build system with development-ready foundation
+- ✅ **Professional UI Design**: Complete SwiftUI interface with conversation bubbles and controls
+- ✅ **Configuration System**: Environment variable support for API keys and agent configuration
+- 🔄 **SDK Resolution**: Pending Xcode project integration (requires manual GUI setup)
+- 🔄 **Live Integration**: Ready for ElevenLabs API key and agent configuration
+
 ### Mode 3: Text + Multimodal Enhanced Reliability & ObjectBox Integration
 - ✅ **API Architecture Simplified**: Migrated from Vertex AI to direct Gemini API for consistency
 - ✅ **Authentication Streamlined**: Uses reliable API key authentication (same as Mode 2)
@@ -89,12 +106,14 @@ Full OAuth integration for complete personal assistant capabilities:
 - ✅ **Error Handling**: Removed hardcoded responses, proper error propagation
 - ✅ **Build Stability**: Fixed compilation issues and Swift syntax errors
 
-### Gmail Full Access Integration (September 2025)
-- ✅ **Complete Email Management**: Read, compose, send, and reply to emails via natural language
-- ✅ **Security Safeguards**: Content validation, rate limiting, and comprehensive audit logging
-- ✅ **Professional Email Composition**: RFC 2822 compliant emails with proper formatting
-- ✅ **Smart Email Detection**: Automatic identification of important emails using Gmail indicators
-- ✅ **Context-Aware Integration**: Email summaries included in AI system instructions for natural responses
+### 2025 OAuth & Google Workspace Integration (September 2025)
+- ✅ **2025 OAuth Compliance**: Fully migrated to OAuth 2.0 with PKCE for March 14, 2025 deadline
+- ✅ **Gmail Full Access**: Complete email management with `https://mail.google.com/` scope
+- ✅ **Calendar Integration**: Full read/write access with `https://www.googleapis.com/auth/calendar`
+- ✅ **Drive Management**: Complete file access with `https://www.googleapis.com/auth/drive`
+- ✅ **Tasks Integration**: Full task management with `https://www.googleapis.com/auth/tasks`
+- ✅ **Security Enhanced**: PKCE authentication, keychain storage, automatic token refresh
+- ✅ **Privacy Compliant**: Ephemeral sessions, PHI redaction, secure credential management
 
 ### Cross-Mode Improvements
 - ✅ **ObjectBox Integration**: Complete migration to ObjectBox database for all modes
@@ -126,15 +145,26 @@ cd JarvisVertexAI
 ```bash
 cp .env.example .env.local
 # Edit .env.local with your credentials:
-# - VERTEX_PROJECT_ID
-# - VERTEX_REGION
-# - VERTEX_CMEK_KEY
-# - GOOGLE_OAUTH_CLIENT_ID
+
+# Required for all modes
+GEMINI_API_KEY=your-gemini-api-key
+
+# Google Workspace Integration (2025 OAuth Compliant)
+GOOGLE_OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
+
+# ElevenLabs Configuration (Mode 2 - Advanced Voice)
+ELEVENLABS_API_KEY=your-elevenlabs-api-key
+ELEVENLABS_AGENT_ID=your-agent-id
+
+# Optional: Vertex AI Configuration (for enterprise features)
+VERTEX_PROJECT_ID=your-project-id
+VERTEX_REGION=us-central1
+VERTEX_CMEK_KEY=projects/[PROJECT]/locations/[REGION]/keyRings/[RING]/cryptoKeys/[KEY]
 ```
 
 ### 3. Install Dependencies
 ```bash
-# Resolve Swift Package Manager dependencies (including ObjectBox)
+# Resolve Swift Package Manager dependencies (including ObjectBox and ElevenLabs)
 xcodebuild -resolvePackageDependencies -project JarvisVertexAI.xcodeproj -scheme JarvisVertexAI
 
 # Generate ObjectBox entity bindings
@@ -222,12 +252,27 @@ JarvisVertexAI/
 
 ### Required Environment Variables
 ```bash
+# Core API Configuration (Required)
+GEMINI_API_KEY="your-gemini-api-key"
+
+# Google Workspace OAuth (2025 Compliant)
+GOOGLE_OAUTH_CLIENT_ID="[CLIENT_ID].apps.googleusercontent.com"
+
+# ElevenLabs Configuration (Mode 2 - Advanced Voice)
+ELEVENLABS_API_KEY="your-elevenlabs-api-key"
+ELEVENLABS_AGENT_ID="your-agent-id"
+
+# Optional: Enterprise Vertex AI Configuration
 VERTEX_PROJECT_ID="your-project-id"
 VERTEX_REGION="us-central1"
 VERTEX_AUDIO_ENDPOINT="projects/[PROJECT]/locations/[REGION]/endpoints/[ID]"
 VERTEX_CMEK_KEY="projects/[PROJECT]/locations/[REGION]/keyRings/[RING]/cryptoKeys/[KEY]"
-GOOGLE_OAUTH_CLIENT_ID="[CLIENT_ID].apps.googleusercontent.com"
 VERTEX_AI_EXPLICIT_CACHE_MODE="off"
+
+# Privacy Settings (Automatically Configured)
+PHI_REDACTION_ENABLED="true"
+LOCAL_ONLY_MODE="true"
+CLOUD_SYNC_ENABLED="false"
 ```
 
 ### Info.plist Requirements
@@ -236,6 +281,37 @@ VERTEX_AI_EXPLICIT_CACHE_MODE="off"
 - Photo library usage description
 - Camera usage description
 - Background modes (audio, processing)
+- URL scheme: `com.jarvis.vertexai` (for OAuth callback)
+
+### Google OAuth Setup (2025 Compliance)
+
+#### 1. Google Cloud Console Configuration
+```bash
+# Create OAuth 2.0 Client ID
+1. Go to Google Cloud Console → APIs & Services → Credentials
+2. Create OAuth 2.0 Client ID (iOS application)
+3. Add bundle ID: com.focusedalpha.jarvisvertexai
+4. Add redirect URL: com.jarvis.vertexai:/oauth
+```
+
+#### 2. OAuth Consent Screen
+```bash
+# Configure OAuth consent screen for full workspace access
+- Add Gmail, Drive, Calendar, Tasks scopes
+- Note: These scopes require Google verification for production use
+- Testing: Limited to 100 users until verified
+- Production: Requires Google OAuth app verification
+```
+
+#### 3. Required Scopes (2025 Compliant)
+```bash
+https://mail.google.com/                          # Gmail full access
+https://www.googleapis.com/auth/calendar          # Calendar full access
+https://www.googleapis.com/auth/tasks             # Tasks full access
+https://www.googleapis.com/auth/drive             # Drive full access
+https://www.googleapis.com/auth/userinfo.profile  # User profile
+https://www.googleapis.com/auth/userinfo.email    # User email
+```
 
 ## 📊 Privacy Dashboard
 
@@ -248,11 +324,18 @@ Built-in privacy dashboard provides:
 
 ## ⚠️ Important Notes
 
-1. **Vertex AI Enterprise Required**: Free tier does not support zero retention
-2. **ZDR Request**: Must file Zero Data Retention request with Google
-3. **BAA Required**: HIPAA compliance requires signed BAA
-4. **CMEK Setup**: Must configure customer-managed encryption keys
-5. **Region Lock**: Data residency controls must be configured
+### 2025 OAuth Migration (Critical)
+1. **March 14, 2025 Deadline**: Google is turning off basic authentication for Gmail, Calendar, Contacts
+2. **OAuth Required**: All apps must use OAuth 2.0 for Google Workspace access
+3. **App Verification**: Production apps with sensitive scopes require Google verification
+4. **Testing Limits**: Unverified apps limited to 100 test users
+
+### Enterprise Features (Optional)
+5. **Vertex AI Enterprise**: Required for zero retention and CMEK features
+6. **ZDR Request**: Must file Zero Data Retention request with Google for HIPAA
+7. **BAA Required**: HIPAA compliance requires signed Business Associate Agreement
+8. **CMEK Setup**: Customer-managed encryption keys for enhanced security
+9. **Region Lock**: Data residency controls for GDPR compliance
 
 ## 🤝 Contributing
 

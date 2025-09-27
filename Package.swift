@@ -43,6 +43,12 @@ let package = Package(
         .package(
             url: "https://github.com/kishikawakatsumi/KeychainAccess.git",
             from: "4.2.0"
+        ),
+
+        // ElevenLabs Swift SDK for conversational AI
+        .package(
+            url: "https://github.com/elevenlabs/elevenlabs-swift-sdk.git",
+            from: "2.0.12"
         )
     ],
     targets: [
@@ -53,7 +59,8 @@ let package = Package(
                 .product(name: "Alamofire", package: "Alamofire"),
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
                 .product(name: "CryptoSwift", package: "CryptoSwift"),
-                .product(name: "KeychainAccess", package: "KeychainAccess")
+                .product(name: "KeychainAccess", package: "KeychainAccess"),
+                .product(name: "ElevenLabs", package: "elevenlabs-swift-sdk")
             ],
             path: ".",
             exclude: [

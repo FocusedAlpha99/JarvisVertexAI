@@ -19,7 +19,7 @@ struct ContentView: View {
             }
             .tag(AppCoordinator.ConversationMode.nativeAudio)
 
-            // Mode 2: Voice Chat Local
+            // Mode 2: Voice Chat Local (ElevenLabs - pending integration)
             NavigationStack {
                 VoiceChatLocalView()
                     .navigationTitle("Voice Chat")
