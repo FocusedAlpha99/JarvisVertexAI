@@ -498,7 +498,7 @@ struct StorageInfoView: View {
     private func loadStorageInfo() {
         Task {
             if let info = try? await SimpleDataManager.shared.getStorageInfo() {
-                // Cast to the expected tuple type from SimpleDataManager
+                // Cast to the expected tuple type from SimpDIleDataManager
                 if let storageData = info as? (totalSize: Int64, sessionCount: Int, transcriptCount: Int, oldestData: Date?) {
                     storageInfo.totalSize = storageData.totalSize
                     storageInfo.sessionCount = storageData.sessionCount

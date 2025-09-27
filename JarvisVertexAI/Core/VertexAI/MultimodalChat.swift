@@ -800,10 +800,12 @@ final class MultimodalChat {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 30.0
 
-        // Inject current time awareness for Gemini API
+        // Inject comprehensive personal assistant context
         let currentTime = getCurrentTimeContext()
         let calendarContext = await getCalendarContext()
         let emailContext = await getEmailContext()
+        let driveContext = await getDriveContext()
+        let tasksContext = await getTasksContext()
 
         // Build request body with comprehensive assistant context and Google Search
         let requestBody: [String: Any] = [
@@ -824,32 +826,52 @@ final class MultimodalChat {
 
                         \(emailContext)
 
+                        \(driveContext)
+
+                        \(tasksContext)
+
                         You are a comprehensive personal AI assistant with full access to:
                         - **Google Search**: Real-time web information and current events
                         - **Gmail Integration**: Full email management (read, compose, send, reply)
                         - **Calendar Integration**: Schedule awareness and conflict detection
+                        - **Google Drive**: File management, upload, download, and organization
+                        - **Google Tasks**: Task management and deadline tracking
                         - **Time Awareness**: Current date/time for accurate responses
 
                         **CONFIRMED CAPABILITIES (You DO have access to these):**
                         - **Gmail Full Access**: \(emailContext.contains("Gmail access not configured") ? "NOT AUTHENTICATED - Request user to authorize Gmail" : "AUTHENTICATED - Can read, send, reply to emails")
                         - **Google Calendar**: \(calendarContext.contains("Calendar access not configured") ? "NOT AUTHENTICATED - Request user to authorize Calendar" : "AUTHENTICATED - Can view events, check schedule")
+                        - **Google Drive**: \(driveContext.contains("Drive access not configured") ? "NOT AUTHENTICATED - Request user to authorize Drive" : "AUTHENTICATED - Can manage files, upload, download")
+                        - **Google Tasks**: \(tasksContext.contains("Tasks access not configured") ? "NOT AUTHENTICATED - Request user to authorize Tasks" : "AUTHENTICATED - Can view tasks, track deadlines")
                         - **Google Search**: ENABLED - Can search the web for current information, news, facts
                         - **Time Integration**: ACTIVE - Always aware of current time and relative dates
 
                         **Personal Assistant Actions:**
                         - **Email**: "Show important emails", "Send email to [person]", "Reply to [sender]"
                         - **Calendar**: "Check my schedule", "Do I have conflicts tomorrow?"
+                        - **Drive**: "Upload this file", "Find my document", "Share file with team"
+                        - **Tasks**: "Show my tasks", "What's due this week?", "Add reminder for project"
                         - **Search**: "What's happening in the news?", "Current weather", "Recent updates on [topic]"
                         - **Time**: "Schedule for today", "Deadline tracking", "Time-aware responses"
 
                         **Response Guidelines:**
                         - Use Google Search for current events, news, weather, or real-time information
-                        - Access actual Gmail and Calendar data when available through authentication
-                        - Provide specific email summaries with sender, subject, and content previews
-                        - Reference real calendar events when discussing schedules
-                        - Be confident about your capabilities - you DO have access to these services
+                        - Access actual Gmail, Calendar, Drive, and Tasks data when available through authentication
+                        - Provide specific summaries with relevant details (email sender/subject, calendar events, file names, task deadlines)
+                        - Reference real data when discussing schedules, files, or task deadlines
+                        - Be confident about your capabilities - you DO have access to these services when authenticated
 
-                        **IMPORTANT**: Never say you don't have access to Gmail, Calendar, or Search. You have full integration with these services when properly authenticated.
+                        **File Management Guidelines:**
+                        - Help users organize and find files in Drive
+                        - Suggest file sharing and collaboration when appropriate
+                        - Track file uploads and downloads for user reference
+
+                        **Task Management Guidelines:**
+                        - Help users track deadlines and priorities
+                        - Cross-reference tasks with calendar events for scheduling
+                        - Provide deadline awareness and reminders
+
+                        **IMPORTANT**: Never say you don't have access to Gmail, Calendar, Drive, Tasks, or Search. You have full integration with these services when properly authenticated.
 
                         Memory context: You have access to conversation history with timestamps for relative time awareness.
                         """
@@ -1057,6 +1079,73 @@ final class MultimodalChat {
         } catch {
             return "Gmail access error: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - Google Drive Integration
+
+    private func getDriveContext() async -> String {
+        guard let oauthManager = getOAuthManager(),
+              oauthManager.isAuthenticated else {
+            return "Google Drive access not configured. User can authorize Drive access for file management."
+        }
+
+        do {
+            let recentFiles = try await oauthManager.listDriveFiles(maxResults: 5)
+            if recentFiles.isEmpty {
+                return "No recent files found in Google Drive."
+            } else {
+                let fileSummaries = recentFiles.map { file in
+                    let sizeFormatted = file.size != nil ? formatFileSize(file.size!) : "Unknown size"
+                    return "• \(file.name) (\(file.mimeType), \(sizeFormatted))"
+                }.joined(separator: "\n")
+                return "Recent Google Drive files:\n\(fileSummaries)"
+            }
+        } catch {
+            return "Google Drive access error: \(error.localizedDescription)"
+        }
+    }
+
+    private func formatFileSize(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+
+    // MARK: - Google Tasks Integration
+
+    private func getTasksContext() async -> String {
+        guard let oauthManager = getOAuthManager(),
+              oauthManager.isAuthenticated else {
+            return "Google Tasks access not configured. User can authorize Tasks access for task management."
+        }
+
+        do {
+            let upcomingTasks = try await oauthManager.getUpcomingTasks(days: 7)
+            if upcomingTasks.isEmpty {
+                return "No upcoming tasks found in Google Tasks."
+            } else {
+                let taskSummaries = upcomingTasks.prefix(5).map { taskWithList in
+                    let task = taskWithList.task
+                    let dueInfo = task.due != nil ? " (Due: \(formatTaskDate(task.due!)))" : ""
+                    let statusIcon = task.isCompleted ? "✅" : "📋"
+                    return "\(statusIcon) \(task.title) [\(taskWithList.listName)]\(dueInfo)"
+                }.joined(separator: "\n")
+                return "Upcoming tasks (next 7 days):\n\(taskSummaries)"
+            }
+        } catch {
+            return "Google Tasks access error: \(error.localizedDescription)"
+        }
+    }
+
+    private func formatTaskDate(_ dateString: String) -> String {
+        guard let date = ISO8601DateFormatter().date(from: dateString) else {
+            return dateString
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
     }
 
     // MARK: - Calendar Integration

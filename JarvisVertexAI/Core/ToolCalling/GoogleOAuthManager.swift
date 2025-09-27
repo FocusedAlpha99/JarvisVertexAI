@@ -151,23 +151,106 @@ class GoogleOAuthManager: NSObject, ObservableObject {
         keychain.set(token.accessToken, forKey: "google_access_token")
     }
     
-    // MARK: - Tool Calling Methods with PHI Protection
-    func getTasks() async throws -> [GoogleTask] {
+    // MARK: - Enhanced Google Tasks Integration for Personal Assistant
+
+    func getAllTasks() async throws -> [TaskWithList] {
         guard let token = accessToken else { throw OAuthError.notAuthenticated }
-        
-        var request = URLRequest(url: URL(string: "https://tasks.googleapis.com/tasks/v1/lists/@default/tasks")!)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let response = try JSONDecoder().decode(TasksResponse.self, from: data)
-        
-        // Redact PHI from task titles
-        return response.items.map { task in
-            var redactedTask = task
-            redactedTask.title = phiRedactor.redactPHI(from: task.title)
-            redactedTask.notes = task.notes.map { phiRedactor.redactPHI(from: $0) }
-            return redactedTask
+
+        // First, get all task lists
+        let taskLists = try await getTaskLists()
+        var allTasks: [TaskWithList] = []
+
+        // Get tasks from each list
+        for taskList in taskLists {
+            do {
+                let tasks = try await getTasks(from: taskList.id)
+                let tasksWithList = tasks.map { task in
+                    TaskWithList(
+                        task: task,
+                        listName: taskList.title,
+                        listId: taskList.id
+                    )
+                }
+                allTasks.append(contentsOf: tasksWithList)
+            } catch {
+                print("⚠️ Failed to get tasks from list \(taskList.title): \(error)")
+            }
         }
+
+        // Sort by due date and status
+        return allTasks.sorted { task1, task2 in
+            // Incomplete tasks first
+            if task1.task.status != task2.task.status {
+                return task1.task.status == "needsAction"
+            }
+
+            // Then by due date
+            switch (task1.task.due, task2.task.due) {
+            case (nil, nil): return false
+            case (nil, _): return false
+            case (_, nil): return true
+            case (let date1?, let date2?): return date1 < date2
+            }
+        }
+    }
+
+    func getTaskLists() async throws -> [GoogleTaskList] {
+        guard let token = accessToken else { throw OAuthError.notAuthenticated }
+
+        var request = URLRequest(url: URL(string: "https://tasks.googleapis.com/tasks/v1/users/@me/lists")!)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let response = try JSONDecoder().decode(TaskListsResponse.self, from: data)
+
+        return response.items
+    }
+
+    func getTasks(from listId: String) async throws -> [GoogleTaskDetailed] {
+        guard let token = accessToken else { throw OAuthError.notAuthenticated }
+
+        var components = URLComponents(string: "https://tasks.googleapis.com/tasks/v1/lists/\(listId)/tasks")!
+        components.queryItems = [
+            URLQueryItem(name: "showCompleted", value: "true"),
+            URLQueryItem(name: "showDeleted", value: "false"),
+            URLQueryItem(name: "maxResults", value: "100")
+        ]
+
+        var request = URLRequest(url: components.url!)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let response = try JSONDecoder().decode(TasksDetailedResponse.self, from: data)
+
+        return response.items ?? []
+    }
+
+    func getUpcomingTasks(days: Int = 7) async throws -> [TaskWithList] {
+        let allTasks = try await getAllTasks()
+        let calendar = Calendar.current
+        let now = Date()
+        let futureDate = calendar.date(byAdding: .day, value: days, to: now) ?? now
+
+        return allTasks.filter { taskWithList in
+            let task = taskWithList.task
+
+            // Include tasks that are incomplete
+            guard task.status == "needsAction" else { return false }
+
+            // Include tasks with due dates in the next week
+            if let dueDateString = task.due,
+               let dueDate = parseTaskDate(dueDateString) {
+                return dueDate <= futureDate
+            }
+
+            // Include tasks without due dates (always relevant)
+            return true
+        }.prefix(20).map { $0 } // Limit to 20 most relevant tasks
+    }
+
+    private func parseTaskDate(_ dateString: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        return formatter.date(from: dateString)
     }
     
     func getCalendarEvents(startDate: Date, endDate: Date) async throws -> [CalendarEvent] {
@@ -335,48 +418,174 @@ class GoogleOAuthManager: NSObject, ObservableObject {
         _ = try await URLSession.shared.data(for: request)
     }
     
-    func uploadToDrive(fileName: String, data: Data, mimeType: String) async throws -> String {
+    // MARK: - Enhanced Google Drive Integration for Personal Assistant
+
+    func uploadToDrive(fileName: String, data: Data, mimeType: String, description: String? = nil) async throws -> DriveFileResult {
         guard let token = accessToken else { throw OAuthError.notAuthenticated }
-        
-        // Create metadata
-        let metadata: [String: Any] = [
-            "name": phiRedactor.redactPHI(from: fileName),
+
+        // Enhanced metadata with better organization
+        var metadata: [String: Any] = [
+            "name": fileName, // No PHI redaction in Drive for personal assistant
             "mimeType": mimeType,
+            "description": description ?? "Uploaded via JarvisVertexAI Personal Assistant",
             "properties": [
+                "source": "JarvisVertexAI",
+                "uploadDate": ISO8601DateFormatter().string(from: Date()),
                 "ephemeral": "true",
                 "autoDelete": "24h"
             ]
         ]
-        
-        // Multipart upload
+
+        // Add folder organization for better file management
+        if let folderId = try? await getOrCreateAssistantFolder() {
+            metadata["parents"] = [folderId]
+        }
+
+        // Multipart upload with progress tracking
         let boundary = UUID().uuidString
         var body = Data()
-        
+
         // Metadata part
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Type: application/json; charset=UTF-8\r\n\r\n".data(using: .utf8)!)
         body.append(try JSONSerialization.data(withJSONObject: metadata))
         body.append("\r\n".data(using: .utf8)!)
-        
+
         // File content part
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
         body.append(data)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        
-        var request = URLRequest(url: URL(string: "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart")!)
+
+        var request = URLRequest(url: URL(string: "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,mimeType,createdTime,webViewLink")!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/related; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
-        
+
         let (responseData, _) = try await URLSession.shared.data(for: request)
-        let file = try JSONDecoder().decode(DriveFile.self, from: responseData)
-        
+        let file = try JSONDecoder().decode(DriveFileDetailed.self, from: responseData)
+
         // Schedule deletion after 24 hours
         scheduleFileDeletion(fileId: file.id, token: token)
-        
-        return file.id
+
+        return DriveFileResult(
+            id: file.id,
+            name: file.name,
+            size: file.size,
+            mimeType: file.mimeType,
+            createdTime: file.createdTime,
+            webViewLink: file.webViewLink
+        )
+    }
+
+    func listDriveFiles(query: String? = nil, maxResults: Int = 20) async throws -> [DriveFileResult] {
+        guard let token = accessToken else { throw OAuthError.notAuthenticated }
+
+        var components = URLComponents(string: "https://www.googleapis.com/drive/v3/files")!
+        var queryItems = [
+            URLQueryItem(name: "pageSize", value: String(maxResults)),
+            URLQueryItem(name: "fields", value: "files(id,name,size,mimeType,createdTime,webViewLink,description)")
+        ]
+
+        // Build search query
+        var searchQuery = "trashed=false"
+        if let query = query {
+            searchQuery += " and (name contains '\(query)' or fullText contains '\(query)')"
+        }
+
+        // Only show files created by this app for privacy
+        searchQuery += " and properties has {key='source' and value='JarvisVertexAI'}"
+
+        queryItems.append(URLQueryItem(name: "q", value: searchQuery))
+        components.queryItems = queryItems
+
+        var request = URLRequest(url: components.url!)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let response = try JSONDecoder().decode(DriveListResponse.self, from: data)
+
+        return response.files.map { file in
+            DriveFileResult(
+                id: file.id,
+                name: file.name,
+                size: file.size,
+                mimeType: file.mimeType,
+                createdTime: file.createdTime,
+                webViewLink: file.webViewLink
+            )
+        }
+    }
+
+    func downloadFromDrive(fileId: String) async throws -> (data: Data, fileName: String, mimeType: String) {
+        guard let token = accessToken else { throw OAuthError.notAuthenticated }
+
+        // Get file metadata first
+        let metadataURL = URL(string: "https://www.googleapis.com/drive/v3/files/\(fileId)?fields=name,mimeType")!
+        var metadataRequest = URLRequest(url: metadataURL)
+        metadataRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (metadataData, _) = try await URLSession.shared.data(for: metadataRequest)
+        let fileInfo = try JSONDecoder().decode(DriveFileInfo.self, from: metadataData)
+
+        // Download file content
+        let downloadURL = URL(string: "https://www.googleapis.com/drive/v3/files/\(fileId)?alt=media")!
+        var downloadRequest = URLRequest(url: downloadURL)
+        downloadRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (fileData, _) = try await URLSession.shared.data(for: downloadRequest)
+
+        return (data: fileData, fileName: fileInfo.name, mimeType: fileInfo.mimeType)
+    }
+
+    func deleteDriveFile(fileId: String) async throws {
+        guard let token = accessToken else { throw OAuthError.notAuthenticated }
+
+        var request = URLRequest(url: URL(string: "https://www.googleapis.com/drive/v3/files/\(fileId)")!)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        _ = try await URLSession.shared.data(for: request)
+    }
+
+    private func getOrCreateAssistantFolder() async throws -> String {
+        guard let token = accessToken else { throw OAuthError.notAuthenticated }
+
+        // Search for existing JarvisVertexAI folder
+        var components = URLComponents(string: "https://www.googleapis.com/drive/v3/files")!
+        components.queryItems = [
+            URLQueryItem(name: "q", value: "name='JarvisVertexAI' and mimeType='application/vnd.google-apps.folder' and trashed=false"),
+            URLQueryItem(name: "fields", value: "files(id)")
+        ]
+
+        var searchRequest = URLRequest(url: components.url!)
+        searchRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (searchData, _) = try await URLSession.shared.data(for: searchRequest)
+        let searchResponse = try JSONDecoder().decode(DriveListResponse.self, from: searchData)
+
+        if let existingFolder = searchResponse.files.first {
+            return existingFolder.id
+        }
+
+        // Create new folder
+        let folderMetadata: [String: Any] = [
+            "name": "JarvisVertexAI",
+            "mimeType": "application/vnd.google-apps.folder",
+            "description": "Files created by JarvisVertexAI Personal Assistant"
+        ]
+
+        var createRequest = URLRequest(url: URL(string: "https://www.googleapis.com/drive/v3/files")!)
+        createRequest.httpMethod = "POST"
+        createRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        createRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        createRequest.httpBody = try JSONSerialization.data(withJSONObject: folderMetadata)
+
+        let (createData, _) = try await URLSession.shared.data(for: createRequest)
+        let folder = try JSONDecoder().decode(DriveFileBasic.self, from: createData)
+
+        return folder.id
     }
     
     // MARK: - Privacy & Security Helpers
@@ -532,16 +741,50 @@ struct TokenResponse: Codable {
     }
 }
 
-struct GoogleTask: Codable, Identifiable {
+// MARK: - Enhanced Tasks Response Models
+
+struct GoogleTaskDetailed: Codable, Identifiable {
     let id: String
-    var title: String
-    var notes: String?
+    let title: String
+    let notes: String?
     let due: String?
     let status: String
+    let updated: String?
+    let completed: String?
+    let parent: String?
+    let position: String?
+
+    var isCompleted: Bool {
+        return status == "completed"
+    }
+
+    var isDue: Bool {
+        guard let dueDateString = due,
+              let dueDate = ISO8601DateFormatter().date(from: dueDateString) else {
+            return false
+        }
+        return dueDate <= Date()
+    }
 }
 
-struct TasksResponse: Codable {
-    let items: [GoogleTask]
+struct GoogleTaskList: Codable, Identifiable {
+    let id: String
+    let title: String
+    let updated: String?
+}
+
+struct TaskWithList {
+    let task: GoogleTaskDetailed
+    let listName: String
+    let listId: String
+}
+
+struct TasksDetailedResponse: Codable {
+    let items: [GoogleTaskDetailed]?
+}
+
+struct TaskListsResponse: Codable {
+    let items: [GoogleTaskList]
 }
 
 struct CalendarEvent: Codable, Identifiable {
@@ -610,10 +853,45 @@ struct GmailListResponse: Codable {
     }
 }
 
-struct DriveFile: Codable {
+// MARK: - Enhanced Drive Response Models
+
+struct DriveFileResult {
     let id: String
     let name: String
+    let size: Int64?
     let mimeType: String
+    let createdTime: String?
+    let webViewLink: String?
+}
+
+struct DriveFileDetailed: Codable {
+    let id: String
+    let name: String
+    let size: String?
+    let mimeType: String
+    let createdTime: String?
+    let webViewLink: String?
+
+    var sizeInt: Int64? {
+        guard let size = size else { return nil }
+        return Int64(size)
+    }
+}
+
+struct DriveFileBasic: Codable {
+    let id: String
+    let name: String
+    let mimeType: String?
+}
+
+struct DriveFileInfo: Codable {
+    let name: String
+    let mimeType: String
+}
+
+struct DriveListResponse: Codable {
+    let files: [DriveFileDetailed]
+    let nextPageToken: String?
 }
 
 struct AuditEvent: Codable {
