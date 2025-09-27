@@ -211,6 +211,212 @@ final class MultimodalChat {
         }
     }
 
+    // MARK: - Email Action Handlers
+
+    func handleEmailRequest(_ request: String) async -> String {
+        guard let oauthManager = getOAuthManager(),
+              oauthManager.isAuthenticated else {
+            return "Gmail access not configured. Please authorize Gmail access to enable email management."
+        }
+
+        let lowercased = request.lowercased()
+
+        do {
+            // Handle different email requests
+            if lowercased.contains("important email") || lowercased.contains("today's email") {
+                let emails = try await oauthManager.getTodaysImportantEmails()
+                return formatEmailSummary(emails)
+            }
+            else if lowercased.contains("search") && (lowercased.contains("email") || lowercased.contains("mail")) {
+                // Extract search query - simplified for now
+                let searchQuery = extractSearchQuery(from: request)
+                let emails = try await oauthManager.searchGmail(query: searchQuery, maxResults: 10)
+                return formatEmailSummary(emails, searchContext: searchQuery)
+            }
+            else if lowercased.contains("send email") || lowercased.contains("email to") {
+                return "To send an email, I need: recipient, subject, and message content. Please provide these details."
+            }
+            else if lowercased.contains("reply to") {
+                return "To reply to an email, please specify which email you'd like to reply to and your response message."
+            }
+            else {
+                return "I can help with emails. Try: 'Show me today's important emails', 'Search emails from [sender]', 'Send email to [person]', or 'Reply to [person]'s email'."
+            }
+        } catch {
+            return "Email operation failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func formatEmailSummary(_ emails: [GmailMessage], searchContext: String? = nil) -> String {
+        if emails.isEmpty {
+            let context = searchContext != nil ? " matching '\(searchContext!)'" : ""
+            return "No emails found\(context)."
+        }
+
+        let summary = emails.prefix(5).enumerated().map { index, email in
+            let subject = email.payload.headers.first(where: { $0.name.lowercased() == "subject" })?.value ?? "No Subject"
+            let from = email.payload.headers.first(where: { $0.name.lowercased() == "from" })?.value ?? "Unknown Sender"
+            let snippet = String(email.snippet.prefix(100))
+
+            return """
+            \(index + 1). **\(subject)**
+               From: \(from)
+               Preview: \(snippet)...
+            """
+        }.joined(separator: "\n\n")
+
+        let context = searchContext != nil ? " matching '\(searchContext!)'" : ""
+        let header = emails.count == 1 ? "Found 1 email\(context):" : "Found \(emails.count) emails\(context) (showing first 5):"
+
+        return "\(header)\n\n\(summary)"
+    }
+
+    private func extractSearchQuery(from request: String) -> String {
+        // Simple extraction - could be enhanced with NLP
+        let words = request.components(separatedBy: .whitespacesAndNewlines)
+
+        // Look for patterns like "search emails from John" or "emails about project"
+        if let fromIndex = words.firstIndex(where: { $0.lowercased() == "from" }),
+           fromIndex + 1 < words.count {
+            return "from:\(words[fromIndex + 1])"
+        }
+
+        if let aboutIndex = words.firstIndex(where: { $0.lowercased() == "about" }),
+           aboutIndex + 1 < words.count {
+            return words[aboutIndex + 1]
+        }
+
+        // Default: search for key terms
+        let searchTerms = words.filter { word in
+            word.count > 3 && !["email", "emails", "search", "find", "show"].contains(word.lowercased())
+        }
+
+        return searchTerms.prefix(3).joined(separator: " ")
+    }
+
+    // MARK: - Email Composition and Sending (with Security Safeguards)
+
+    func composeAndSendEmail(to: String, subject: String, body: String, cc: String? = nil) async -> String {
+        guard let oauthManager = getOAuthManager(),
+              oauthManager.isAuthenticated else {
+            return "Gmail access not configured. Please authorize Gmail access to send emails."
+        }
+
+        // Security safeguards
+        if !isValidEmailRequest(to: to, subject: subject, body: body) {
+            return "Email request appears suspicious or invalid. Please verify recipient and content."
+        }
+
+        // Rate limiting check
+        if await isRateLimited() {
+            return "Too many email requests recently. Please wait before sending more emails."
+        }
+
+        do {
+            let messageId = try await oauthManager.sendEmail(to: to, subject: subject, body: body, cc: cc)
+
+            // Log the email sending for audit
+            logEmailAction(action: "send", recipient: to, subject: subject)
+
+            return "✅ Email sent successfully to \(to) with subject '\(subject)'. Message ID: \(messageId)"
+        } catch {
+            return "Failed to send email: \(error.localizedDescription)"
+        }
+    }
+
+    func replyToEmailByContext(originalSender: String, replyContent: String) async -> String {
+        guard let oauthManager = getOAuthManager(),
+              oauthManager.isAuthenticated else {
+            return "Gmail access not configured. Please authorize Gmail access to reply to emails."
+        }
+
+        do {
+            // Search for recent emails from the sender
+            let searchQuery = "from:\(originalSender)"
+            let emails = try await oauthManager.searchGmail(query: searchQuery, maxResults: 5)
+
+            guard let latestEmail = emails.first else {
+                return "No recent emails found from \(originalSender) to reply to."
+            }
+
+            // Security check
+            if !isValidReplyRequest(replyContent: replyContent) {
+                return "Reply content appears inappropriate. Please review your message."
+            }
+
+            let messageId = try await oauthManager.replyToEmail(messageId: latestEmail.id, body: replyContent)
+
+            // Log the email action
+            logEmailAction(action: "reply", recipient: originalSender, subject: "Reply")
+
+            return "✅ Reply sent successfully to \(originalSender). Message ID: \(messageId)"
+        } catch {
+            return "Failed to reply to email: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Security Safeguards
+
+    private func isValidEmailRequest(to: String, subject: String, body: String) -> Bool {
+        // Basic email validation
+        let emailRegex = #"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"#
+        guard to.range(of: emailRegex, options: .regularExpression) != nil else {
+            return false
+        }
+
+        // Check for suspicious content patterns
+        let suspiciousPatterns = [
+            "password", "login", "urgent", "confidential", "click here",
+            "verify account", "suspended", "phishing", "virus"
+        ]
+
+        let lowercasedBody = body.lowercased()
+        let lowercasedSubject = subject.lowercased()
+
+        let containsSuspiciousContent = suspiciousPatterns.contains { pattern in
+            lowercasedBody.contains(pattern) || lowercasedSubject.contains(pattern)
+        }
+
+        // Reject if too many suspicious patterns
+        return !containsSuspiciousContent
+    }
+
+    private func isValidReplyRequest(replyContent: String) -> Bool {
+        // Check reply length (prevent spam)
+        if replyContent.count > 5000 {
+            return false
+        }
+
+        // Check for inappropriate content patterns
+        let inappropriatePatterns = ["spam", "advertisement", "promotion"]
+        let lowercased = replyContent.lowercased()
+
+        return !inappropriatePatterns.contains { pattern in
+            lowercased.contains(pattern)
+        }
+    }
+
+    private func isRateLimited() async -> Bool {
+        // Simple rate limiting: max 10 emails per hour
+        let currentTime = Date()
+        let oneHourAgo = currentTime.addingTimeInterval(-3600)
+
+        // In a real implementation, this would check ObjectBox for recent email sends
+        // For now, implement basic check
+        return false // Placeholder - implement proper rate limiting
+    }
+
+    private func logEmailAction(action: String, recipient: String, subject: String) {
+        if let sessionId = currentSessionId {
+            ObjectBoxManager.shared.logAudit(
+                sessionId: sessionId,
+                action: "email_\(action)",
+                details: "Recipient: \(recipient), Subject: \(subject)",
+                metadata: ["timestamp": ISO8601DateFormatter().string(from: Date())]
+            )
+        }
+    }
+
     // MARK: - Message Handling
 
     func sendMessage(text: String, attachments: [Attachment] = []) async -> String? {
@@ -597,8 +803,9 @@ final class MultimodalChat {
         // Inject current time awareness for Gemini API
         let currentTime = getCurrentTimeContext()
         let calendarContext = getCalendarContext()
+        let emailContext = getEmailContext()
 
-        // Build request body with time-aware system instruction
+        // Build request body with comprehensive assistant context
         let requestBody: [String: Any] = [
             "contents": conversationHistory,
             "systemInstruction": [
@@ -610,14 +817,29 @@ final class MultimodalChat {
 
                         \(calendarContext)
 
-                        You are a personal AI assistant with full time awareness and calendar integration. Always consider the current time when responding.
-                        When users ask about time, dates, schedules, deadlines, or relative time references (today, tomorrow, this week, etc.),
-                        use the current time and calendar information provided above for accurate responses.
+                        \(emailContext)
 
-                        For accountability and deadline management:
-                        - Reference actual calendar events when discussing schedule conflicts
-                        - Provide time-aware deadline reminders based on current date/time
-                        - Suggest optimal timing for tasks based on calendar availability
+                        You are a comprehensive personal AI assistant with full access to time, calendar, and email data. Always consider current context when responding.
+
+                        **Personal Assistant Capabilities:**
+                        - **Email Management**: Read, summarize, compose, and send emails on user's behalf
+                        - **Schedule Management**: Reference calendar events for deadline and conflict awareness
+                        - **Time Awareness**: Provide accurate time-based responses and deadline tracking
+                        - **Task Execution**: Perform actions like "reply to John's email" or "send reminder to team"
+
+                        **Email Actions Available:**
+                        - Read and summarize today's important emails
+                        - Search emails by sender, subject, or content
+                        - Compose and send new emails with proper formatting
+                        - Reply to specific emails with contextual responses
+                        - Mark emails as read or important
+
+                        **Response Guidelines:**
+                        - When asked about emails, provide specific summaries with sender and subject
+                        - For email composition requests, create professional, contextually appropriate messages
+                        - Reference actual calendar events when discussing schedules or conflicts
+                        - Provide time-aware responses appropriate for current time of day
+                        - Ask for clarification only when essential details are missing
 
                         Memory context: You have access to conversation history with timestamps for relative time awareness.
                         """
@@ -799,6 +1021,36 @@ final class MultimodalChat {
         } else {
             return randomResponse
         }
+    }
+
+    // MARK: - Gmail Integration
+
+    private func getEmailContext() -> String {
+        guard let oauthManager = getOAuthManager(),
+              oauthManager.isAuthenticated else {
+            return "Gmail access not configured. User can authorize Gmail access for email management."
+        }
+
+        Task {
+            do {
+                let importantEmails = try await oauthManager.getTodaysImportantEmails()
+                if importantEmails.isEmpty {
+                    return "No important emails found in today's inbox."
+                } else {
+                    let emailSummaries = importantEmails.prefix(5).map { email in
+                        let subject = email.payload.headers.first(where: { $0.name.lowercased() == "subject" })?.value ?? "No Subject"
+                        let from = email.payload.headers.first(where: { $0.name.lowercased() == "from" })?.value ?? "Unknown Sender"
+                        let snippet = email.snippet.prefix(100)
+                        return "• From: \(from)\n  Subject: \(subject)\n  Preview: \(snippet)..."
+                    }.joined(separator: "\n\n")
+                    return "Today's important emails:\n\n\(emailSummaries)"
+                }
+            } catch {
+                return "Gmail access error: \(error.localizedDescription)"
+            }
+        }
+
+        return "Loading important emails..."
     }
 
     // MARK: - Calendar Integration

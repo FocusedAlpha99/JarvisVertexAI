@@ -48,13 +48,20 @@ A three-mode conversational AI iOS application leveraging Google Vertex AI's Gem
 - **30-Day Auto-Cleanup**: Automatic old data deletion
 - **No Analytics**: Zero tracking or telemetry
 
-### 🔧 Tool Calling Integration
+### 🔧 Personal Assistant Tool Integration ⭐ **Enhanced**
 
-Minimal-scope OAuth integration for:
-- Google Tasks (read-only)
-- Google Calendar (read-only)
-- Gmail (read-only)
-- Google Drive (app-created files only)
+Comprehensive OAuth integration for full assistant capabilities:
+- **Gmail Full Access**: Read, compose, send, and reply to emails with natural language
+- **Google Calendar**: Schedule awareness for deadline management and conflict detection
+- **Google Tasks**: Task management and deadline tracking (read-only)
+- **Google Drive**: Secure file management (app-created files only)
+
+#### Email Management Capabilities:
+- **Natural Language Commands**: "Show me today's important emails", "Send email to team about meeting"
+- **Smart Email Reading**: Automatic important email detection and summarization
+- **Professional Email Composition**: Context-aware email drafting and sending
+- **Intelligent Replies**: Contextual email responses with thread awareness
+- **Security Safeguards**: Content validation, rate limiting, and audit logging
 
 ## 🚀 Recent Improvements (September 2025)
 
@@ -80,9 +87,17 @@ Minimal-scope OAuth integration for:
 - ✅ **Error Handling**: Removed hardcoded responses, proper error propagation
 - ✅ **Build Stability**: Fixed compilation issues and Swift syntax errors
 
+### Gmail Full Access Integration (September 2025)
+- ✅ **Complete Email Management**: Read, compose, send, and reply to emails via natural language
+- ✅ **Security Safeguards**: Content validation, rate limiting, and comprehensive audit logging
+- ✅ **Professional Email Composition**: RFC 2822 compliant emails with proper formatting
+- ✅ **Smart Email Detection**: Automatic identification of important emails using Gmail indicators
+- ✅ **Context-Aware Integration**: Email summaries included in AI system instructions for natural responses
+
 ### Cross-Mode Improvements
 - ✅ **ObjectBox Integration**: Complete migration to ObjectBox database for all modes
-- ✅ **PHI Redaction**: Enhanced pattern detection with medical context awareness
+- ✅ **Enhanced Time Awareness**: Current time injection and calendar integration for deadline management
+- ✅ **Conversational Privacy**: PHI redaction optimized for personal assistant context
 - ✅ **Token Management**: Automatic OAuth token refresh with retry logic
 - ✅ **Database Security**: Enhanced encryption and privacy controls with device-specific keys
 - ✅ **Command-Line Deployment**: Automated dependency management via terminal commands

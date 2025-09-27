@@ -14,12 +14,14 @@ class GoogleOAuthManager: NSObject, ObservableObject {
     private let keychain = KeychainManager()
     private let phiRedactor = PHIRedactor.shared
     
-    // Minimal scopes for privacy
-    private let minimalScopes = [
-        "https://www.googleapis.com/auth/tasks.readonly",      // Read-only Tasks
+    // Personal Assistant scopes - full Gmail access for reading, composing, and sending
+    private let personalAssistantScopes = [
+        "https://www.googleapis.com/auth/tasks.readonly",       // Read-only Tasks
         "https://www.googleapis.com/auth/calendar.events.readonly", // Read-only Calendar
-        "https://www.googleapis.com/auth/gmail.readonly",      // Read-only Gmail
-        "https://www.googleapis.com/auth/drive.file"          // Only files created by app
+        "https://www.googleapis.com/auth/gmail.readonly",       // Read Gmail messages and metadata
+        "https://www.googleapis.com/auth/gmail.compose",        // Compose and send emails
+        "https://www.googleapis.com/auth/gmail.modify",         // Mark as read, archive, delete
+        "https://www.googleapis.com/auth/drive.file"           // Only files created by app
     ]
     
     struct UserConsent: Codable {
@@ -45,10 +47,10 @@ class GoogleOAuthManager: NSObject, ObservableObject {
         let codeVerifier = generateCodeVerifier()
         let codeChallenge = generateCodeChallenge(from: codeVerifier)
         
-        // Build auth URL with minimal scopes
+        // Build auth URL with personal assistant scopes
         let authURL = buildAuthURL(
             codeChallenge: codeChallenge,
-            scopes: minimalScopes
+            scopes: personalAssistantScopes
         )
         
         // Present consent screen
@@ -79,18 +81,18 @@ class GoogleOAuthManager: NSObject, ObservableObject {
         )
         
         // Store securely with consent record
-        storeCredentials(token: token, scopes: minimalScopes)
-        
+        storeCredentials(token: token, scopes: personalAssistantScopes)
+
         // Log consent event
-        logConsentEvent(scopes: minimalScopes)
+        logConsentEvent(scopes: personalAssistantScopes)
         
         await MainActor.run {
             self.accessToken = token.accessToken
             self.isAuthenticated = true
             self.userConsent = UserConsent(
                 timestamp: Date(),
-                scopes: minimalScopes,
-                consentHash: generateConsentHash(scopes: minimalScopes),
+                scopes: personalAssistantScopes,
+                consentHash: generateConsentHash(scopes: personalAssistantScopes),
                 expiresAt: Date().addingTimeInterval(TimeInterval(token.expiresIn))
             )
         }
@@ -201,43 +203,136 @@ class GoogleOAuthManager: NSObject, ObservableObject {
         }
     }
     
-    func searchGmail(query: String, maxResults: Int = 10) async throws -> [EmailSummary] {
+    // MARK: - Enhanced Gmail Methods for Personal Assistant
+
+    func getTodaysImportantEmails() async throws -> [GmailMessage] {
         guard let token = accessToken else { throw OAuthError.notAuthenticated }
-        
-        // Redact PHI from search query
-        let redactedQuery = phiRedactor.redactPHI(from: query)
-        
+
+        // Query for today's emails in inbox with importance markers
+        let today = Calendar.current.startOfDay(for: Date())
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy/MM/dd"
+        let todayString = dateFormatter.string(from: today)
+
         var components = URLComponents(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages")!
         components.queryItems = [
-            URLQueryItem(name: "q", value: redactedQuery),
-            URLQueryItem(name: "maxResults", value: String(maxResults))
+            URLQueryItem(name: "q", value: "in:inbox after:\(todayString) (is:important OR is:starred OR from:boss OR from:urgent)"),
+            URLQueryItem(name: "maxResults", value: "20")
         ]
-        
+
         var request = URLRequest(url: components.url!)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        
+
         let (data, _) = try await URLSession.shared.data(for: request)
         let response = try JSONDecoder().decode(GmailListResponse.self, from: data)
-        
-        // Fetch message headers only (no body for privacy)
-        var summaries: [EmailSummary] = []
-        for message in response.messages {
-            let messageURL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages/\(message.id)?format=metadata")!
-            var messageRequest = URLRequest(url: messageURL)
-            messageRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            
-            let (messageData, _) = try await URLSession.shared.data(for: messageRequest)
-            if let summary = try? JSONDecoder().decode(EmailSummary.self, from: messageData) {
-                // Redact sender/recipient info
-                var redactedSummary = summary
-                redactedSummary.from = "[REDACTED]"
-                redactedSummary.to = "[REDACTED]"
-                redactedSummary.subject = phiRedactor.redactPHI(from: summary.subject)
-                summaries.append(redactedSummary)
+
+        var messages: [GmailMessage] = []
+        for messageRef in response.messages {
+            if let fullMessage = try? await getGmailMessage(messageId: messageRef.id) {
+                messages.append(fullMessage)
             }
         }
-        
-        return summaries
+
+        return messages
+    }
+
+    func getGmailMessage(messageId: String) async throws -> GmailMessage {
+        guard let token = accessToken else { throw OAuthError.notAuthenticated }
+
+        let messageURL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages/\(messageId)")!
+        var request = URLRequest(url: messageURL)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return try JSONDecoder().decode(GmailMessage.self, from: data)
+    }
+
+    func searchGmail(query: String, maxResults: Int = 10) async throws -> [GmailMessage] {
+        guard let token = accessToken else { throw OAuthError.notAuthenticated }
+
+        var components = URLComponents(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages")!
+        components.queryItems = [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "maxResults", value: String(maxResults))
+        ]
+
+        var request = URLRequest(url: components.url!)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let response = try JSONDecoder().decode(GmailListResponse.self, from: data)
+
+        var messages: [GmailMessage] = []
+        for messageRef in response.messages {
+            if let fullMessage = try? await getGmailMessage(messageId: messageRef.id) {
+                messages.append(fullMessage)
+            }
+        }
+
+        return messages
+    }
+
+    func sendEmail(to: String, subject: String, body: String, cc: String? = nil, bcc: String? = nil) async throws -> String {
+        guard let token = accessToken else { throw OAuthError.notAuthenticated }
+
+        // Create email message in RFC 2822 format
+        var emailContent = "To: \(to)\r\n"
+        if let cc = cc { emailContent += "Cc: \(cc)\r\n" }
+        if let bcc = bcc { emailContent += "Bcc: \(bcc)\r\n" }
+        emailContent += "Subject: \(subject)\r\n"
+        emailContent += "Content-Type: text/plain; charset=utf-8\r\n"
+        emailContent += "\r\n"
+        emailContent += body
+
+        // Encode message in base64url
+        let messageData = emailContent.data(using: .utf8)!
+        let base64Message = messageData.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+
+        let requestBody = ["raw": base64Message]
+        let jsonData = try JSONSerialization.data(withJSONObject: requestBody)
+
+        var request = URLRequest(url: URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages/send")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = jsonData
+
+        let (responseData, _) = try await URLSession.shared.data(for: request)
+        let response = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+        return response?["id"] as? String ?? "unknown"
+    }
+
+    func replyToEmail(messageId: String, body: String) async throws -> String {
+        guard let token = accessToken else { throw OAuthError.notAuthenticated }
+
+        // Get original message to extract reply information
+        let originalMessage = try await getGmailMessage(messageId: messageId)
+
+        // Extract subject and sender information
+        let headers = originalMessage.payload.headers
+        let originalSubject = headers.first(where: { $0.name.lowercased() == "subject" })?.value ?? ""
+        let replySubject = originalSubject.hasPrefix("Re:") ? originalSubject : "Re: \(originalSubject)"
+        let replyTo = headers.first(where: { $0.name.lowercased() == "from" })?.value ?? ""
+
+        return try await sendEmail(to: replyTo, subject: replySubject, body: body)
+    }
+
+    func markAsRead(messageId: String) async throws {
+        guard let token = accessToken else { throw OAuthError.notAuthenticated }
+
+        let requestBody = ["removeLabelIds": ["UNREAD"]]
+        let jsonData = try JSONSerialization.data(withJSONObject: requestBody)
+
+        var request = URLRequest(url: URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages/\(messageId)/modify")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = jsonData
+
+        _ = try await URLSession.shared.data(for: request)
     }
     
     func uploadToDrive(fileName: String, data: Data, mimeType: String) async throws -> String {
@@ -472,20 +567,46 @@ struct CalendarResponse: Codable {
     let items: [CalendarEvent]
 }
 
-struct EmailSummary: Codable {
+struct GmailMessage: Codable {
     let id: String
-    var from: String
-    var to: String
-    var subject: String
+    let threadId: String
+    let labelIds: [String]
     let snippet: String
-    let date: String
+    let payload: MessagePayload
+    let sizeEstimate: Int?
+    let historyId: String?
+
+    struct MessagePayload: Codable {
+        let headers: [MessageHeader]
+        let body: MessageBody?
+        let parts: [MessagePart]?
+
+        struct MessageHeader: Codable {
+            let name: String
+            let value: String
+        }
+
+        struct MessageBody: Codable {
+            let data: String?
+            let size: Int
+        }
+
+        struct MessagePart: Codable {
+            let headers: [MessageHeader]?
+            let body: MessageBody?
+            let parts: [MessagePart]?
+        }
+    }
 }
 
 struct GmailListResponse: Codable {
-    let messages: [GmailMessage]
-    
-    struct GmailMessage: Codable {
+    let messages: [MessageReference]
+    let nextPageToken: String?
+    let resultSizeEstimate: Int?
+
+    struct MessageReference: Codable {
         let id: String
+        let threadId: String
     }
 }
 
