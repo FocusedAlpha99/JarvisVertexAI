@@ -27,10 +27,13 @@ A three-mode conversational AI iOS application leveraging Google Vertex AI's Gem
 - Professional UI with real-time visual feedback
 
 #### Mode 3: Text + Multimodal
-- Keyboard input with file attachments
-- Photo and document analysis
-- Ephemeral file storage (24-hour auto-delete)
-- Support for images, PDFs, and text files
+- **Direct Gemini API integration** for reliable multimodal chat
+- **Keyboard input with drag-and-drop** file attachments
+- **Advanced image analysis** with vision AI capabilities
+- **Document processing** for PDFs and text files
+- **Ephemeral file storage** (24-hour auto-delete)
+- **Real-time conversation history** with professional UI
+- **Privacy-first design** with automatic PHI redaction
 
 ### 🛡️ Privacy & Security Features
 
@@ -61,6 +64,13 @@ Minimal-scope OAuth integration for:
 - ✅ **Reconnection Logic**: Exponential backoff with quota-aware retry strategies
 - ✅ **Session Management**: Complete state cleanup and reliable re-initiation
 - ✅ **Production Ready**: Comprehensive error recovery and connection stability
+
+### Mode 3: Text + Multimodal Enhanced Reliability
+- ✅ **API Architecture Simplified**: Migrated from Vertex AI to direct Gemini API for consistency
+- ✅ **Authentication Streamlined**: Uses reliable API key authentication (same as Mode 2)
+- ✅ **Multimodal Support**: Full support for images, documents, and text with vision AI
+- ✅ **Error Handling**: Removed hardcoded responses, proper error propagation
+- ✅ **Build Stability**: Fixed compilation issues and Swift syntax errors
 
 ### Cross-Mode Improvements
 - ✅ **PHI Redaction**: Enhanced pattern detection with medical context awareness

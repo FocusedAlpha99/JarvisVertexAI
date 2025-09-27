@@ -500,69 +500,26 @@ final class MultimodalChat {
             return await generateMockResponse()
         }
 
-        // Validate configuration
-        guard !config.projectId.isEmpty else {
-            throw MultimodalChatError.configurationMissing("Project ID")
+        // Use direct Gemini API (same approach as Mode 2)
+        let apiKey = ProcessInfo.processInfo.environment["GEMINI_API_KEY"] ?? ""
+        guard !apiKey.isEmpty else {
+            throw MultimodalChatError.configurationMissing("GEMINI_API_KEY")
         }
 
-        guard !accessToken.isEmpty else {
-            throw MultimodalChatError.authenticationFailed
-        }
+        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")!
 
-        // Build URL
-        let modelName = ProcessInfo.processInfo.environment["GEMINI_MODEL"] ?? "gemini-2.0-flash-exp"
-        let urlString = "https://\(config.region)-aiplatform.googleapis.com/v1/projects/\(config.projectId)/locations/\(config.region)/publishers/google/models/\(modelName):generateContent"
-
-        guard let url = URL(string: urlString) else {
-            throw MultimodalChatError.configurationMissing("Invalid API URL")
-        }
-
-        // Prepare request
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("JarvisVertexAI/1.0", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 30.0
 
-        // Privacy headers
-        if ProcessInfo.processInfo.environment["DISABLE_PROMPT_LOGGING"] == "true" {
-            request.setValue("strict", forHTTPHeaderField: "X-Privacy-Mode")
-        }
-
-        // Add CMEK header if configured
-        if let cmekKey = ProcessInfo.processInfo.environment["CMEK_KEY"], !cmekKey.isEmpty {
-            request.setValue(cmekKey, forHTTPHeaderField: "X-Goog-Encryption-Key")
-        }
-
-        // Build request body with privacy settings
+        // Build request body
         let requestBody: [String: Any] = [
             "contents": conversationHistory,
             "generationConfig": [
-                "temperature": 0.7,
                 "maxOutputTokens": 2048,
-                "topP": 0.95,
-                "topK": 40,
-                "candidateCount": 1
-            ],
-            "safetySettings": [
-                ["category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"],
-                ["category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"],
-                ["category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"],
-                ["category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"]
-            ],
-            "systemInstruction": [
-                "parts": [
-                    ["text": """
-                    You are a privacy-focused multimodal assistant. Follow these guidelines:
-                    - All files are ephemeral and auto-delete after 24 hours
-                    - Never request or store personal information
-                    - PHI/PII is automatically redacted before you see it
-                    - Conversations are stored locally with encryption
-                    - Be helpful, accurate, and concise in your responses
-                    - If you detect any sensitive information, remind the user about privacy
-                    """]
-                ]
+                "temperature": 0.7
             ]
         ]
 
@@ -579,18 +536,8 @@ final class MultimodalChat {
                 throw MultimodalChatError.networkError(URLError(.badServerResponse))
             }
 
-            // Handle different HTTP status codes
-            switch httpResponse.statusCode {
-            case 200:
-                break // Success
-            case 401, 403:
-                throw MultimodalChatError.authenticationFailed
-            case 429:
-                throw MultimodalChatError.quotaExceeded
-            case 500...599:
-                let errorMessage = String(data: data, encoding: .utf8) ?? "Server error"
-                throw MultimodalChatError.apiError(httpResponse.statusCode, errorMessage)
-            default:
+            // Check HTTP status
+            if httpResponse.statusCode != 200 {
                 let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
                 throw MultimodalChatError.apiError(httpResponse.statusCode, errorMessage)
             }

@@ -20,6 +20,40 @@ enum AudioSessionError: Error {
 
 final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDelegate {
 
+    // MARK: - AVAudioPlayerDelegate
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        print("🎧 Audio playback finished - success: \(flag)")
+
+        // Restore recording configuration
+        #if os(iOS)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.restoreRecordingAudioSession()
+        }
+        #endif
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        print("❌ Audio player decode error: \(error?.localizedDescription ?? "Unknown error")")
+    }
+
+    private func restoreRecordingAudioSession() {
+        #if os(iOS)
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playAndRecord,
+                                   mode: .voiceChat,
+                                   options: [.defaultToSpeaker,
+                                           .duckOthers,
+                                           .allowBluetooth])
+            try session.setActive(true)
+            print("✅ Audio session restored for recording")
+        } catch {
+            print("❌ Failed to restore recording audio session: \(error)")
+        }
+        #endif
+    }
+
     // MARK: - Properties
 
     static let shared = AudioSession()
@@ -1043,16 +1077,70 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
     // MARK: - Audio Playback (Stable WAV path)
 
     private func playAudio(_ base64Audio: String) {
-        guard let audioData = Data(base64Encoded: base64Audio) else { return }
+        guard let audioData = Data(base64Encoded: base64Audio) else {
+            print("❌ Failed to decode base64 audio data")
+            return
+        }
+
+        print("🎧 Preparing to play audio: \(audioData.count) raw bytes")
+
+        // Configure audio session for playback
+        #if os(iOS)
+        do {
+            let session = AVAudioSession.sharedInstance()
+            // Temporarily switch to playback mode to ensure audio plays
+            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            try session.setActive(true)
+            print("✅ Audio session configured for playback")
+        } catch {
+            print("❌ Failed to configure audio session for playback: \(error)")
+        }
+        #endif
+
         // Wrap raw PCM (24 kHz mono 16-bit) as a WAV for AVAudioPlayer
         let wavData = createWAVData(from: audioData, sampleRate: Int(outputSampleRate), channels: 1)
-        do {
-            audioPlayer = try AVAudioPlayer(data: wavData)
-            audioPlayer?.prepareToPlay()
-            audioPlayer?.play()
-            print("🔊 Playing native audio response (\(audioData.count) bytes)")
-        } catch {
-            print("❌ Audio playback failed: \(error)")
+        print("🎧 Created WAV data: \(wavData.count) bytes (from \(audioData.count) PCM bytes)")
+
+        DispatchQueue.main.async { [weak self] in
+            do {
+                self?.audioPlayer = try AVAudioPlayer(data: wavData)
+                self?.audioPlayer?.delegate = self
+
+                guard let player = self?.audioPlayer else {
+                    print("❌ Failed to create audio player")
+                    return
+                }
+
+                print("🎧 Audio player created - duration: \(String(format: "%.2f", player.duration))s")
+                print("🎧 Audio player format: rate=\(player.format.sampleRate), channels=\(player.format.channelCount)")
+
+                let prepared = player.prepareToPlay()
+                print("🎧 Prepare to play result: \(prepared)")
+
+                if player.isPlaying {
+                    print("⚠️ Audio player already playing, stopping first")
+                    player.stop()
+                }
+
+                // Set volume to ensure audibility
+                player.volume = 1.0
+
+                let playResult = player.play()
+                print("🔊 Playing native audio response (\(audioData.count) bytes) - play result: \(playResult)")
+
+                if !playResult {
+                    print("❌ Audio play() returned false - checking player state")
+                    print("📊 Player state: playing=\(player.isPlaying), duration=\(player.duration), current=\(player.currentTime)")
+                }
+
+            } catch {
+                print("❌ Audio playback failed: \(error)")
+                print("📊 Error details: \(error.localizedDescription)")
+                if let nsError = error as NSError? {
+                    print("📊 Error code: \(nsError.code), domain: \(nsError.domain)")
+                    print("📊 Error userInfo: \(nsError.userInfo)")
+                }
+            }
         }
     }
 
