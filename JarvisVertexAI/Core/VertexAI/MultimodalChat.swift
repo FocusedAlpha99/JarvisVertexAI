@@ -111,7 +111,7 @@ final class MultimodalChat {
     // MARK: - Session Management
 
     func startSession() {
-        currentSessionId = SimpleDataManager.shared.createSession(
+        currentSessionId = ObjectBoxManager.shared.createSession(
             mode: "Text Multimodal",
             metadata: [
                 "multimodal": true,
@@ -126,7 +126,7 @@ final class MultimodalChat {
 
     func endSession() {
         if let sessionId = currentSessionId {
-            SimpleDataManager.shared.endSession(sessionId)
+            ObjectBoxManager.shared.endSession(sessionId)
         }
 
         // Clean up ephemeral files immediately
@@ -179,7 +179,7 @@ final class MultimodalChat {
 
         // Store user message locally
         if let sessionId = currentSessionId {
-            SimpleDataManager.shared.addTranscript(
+            ObjectBoxManager.shared.addTranscript(
                 sessionId: sessionId,
                 speaker: "user",
                 text: safeText,
@@ -218,7 +218,7 @@ final class MultimodalChat {
 
         // Store assistant response
         if let sessionId = currentSessionId {
-            SimpleDataManager.shared.addTranscript(
+            ObjectBoxManager.shared.addTranscript(
                 sessionId: sessionId,
                 speaker: "assistant",
                 text: response,
@@ -627,7 +627,7 @@ final class MultimodalChat {
         print("🗑️ Ephemeral file deleted: \(fileId)")
 
         // Log deletion
-        SimpleDataManager.shared.logAudit(
+        ObjectBoxManager.shared.logAudit(
             sessionId: currentSessionId ?? "unknown",
             action: "EPHEMERAL_FILE_DELETED",
             details: "File deleted: \(fileId)",

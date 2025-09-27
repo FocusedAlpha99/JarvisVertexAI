@@ -8,6 +8,9 @@
 
 import Foundation
 import ObjectBox
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - Session Entity
 // objectbox: entity

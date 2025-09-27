@@ -14,9 +14,9 @@ let package = Package(
         ),
     ],
     dependencies: [
-        // ObjectBox for local database
+        // ObjectBox for local database - using the official SPM package
         .package(
-            url: "https://github.com/objectbox/objectbox-swift.git",
+            url: "https://github.com/objectbox/objectbox-swift-spm.git",
             from: "4.4.1"
         ),
         
@@ -49,7 +49,7 @@ let package = Package(
         .target(
             name: "JarvisVertexAI",
             dependencies: [
-                .product(name: "ObjectBox", package: "objectbox-swift"),
+                .product(name: "ObjectBox.xcframework", package: "objectbox-swift-spm"),
                 .product(name: "Alamofire", package: "Alamofire"),
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
                 .product(name: "CryptoSwift", package: "CryptoSwift"),

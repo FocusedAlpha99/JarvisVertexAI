@@ -1,0 +1,263 @@
+{
+  "_note1": "KEEP THIS FILE! Check it into a version control system (VCS) like git.",
+  "_note2": "ObjectBox manages crucial IDs for your object model. See docs for details.",
+  "_note3": "If you have VCS merge conflicts, you must resolve them according to ObjectBox docs.",
+  "entities": [
+    {
+      "id": "1:3119378434988257536",
+      "lastPropertyId": "7:1675046100229534208",
+      "name": "AuditEntity",
+      "properties": [
+        {
+          "id": "1:9041789108828225024",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:1112545179719011840",
+          "name": "sessionId",
+          "type": 9
+        },
+        {
+          "id": "3:1465216564729540096",
+          "name": "action",
+          "type": 9
+        },
+        {
+          "id": "4:249686791076345344",
+          "name": "details",
+          "type": 9
+        },
+        {
+          "id": "5:5742346292094710528",
+          "name": "timestamp",
+          "type": 10
+        },
+        {
+          "id": "6:5760369612458244864",
+          "name": "userId",
+          "type": 9
+        },
+        {
+          "id": "7:1675046100229534208",
+          "name": "metadataJson",
+          "type": 9
+        }
+      ],
+      "relations": []
+    },
+    {
+      "id": "2:639004552926595584",
+      "lastPropertyId": "10:796672730650135040",
+      "name": "FileEntity",
+      "properties": [
+        {
+          "id": "1:1037976401444389120",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:7925399470178910720",
+          "name": "sessionId",
+          "type": 9
+        },
+        {
+          "id": "3:81006185723989504",
+          "name": "fileName",
+          "type": 9
+        },
+        {
+          "id": "4:6095804569922039808",
+          "name": "mimeType",
+          "type": 9
+        },
+        {
+          "id": "5:5272962629824747776",
+          "name": "encryptedData",
+          "type": 23
+        },
+        {
+          "id": "6:5782473101885932032",
+          "name": "fileSize",
+          "type": 6
+        },
+        {
+          "id": "7:2515912062795982336",
+          "name": "uploadTimestamp",
+          "type": 10
+        },
+        {
+          "id": "8:5576593747661471488",
+          "name": "expiryTimestamp",
+          "type": 10
+        },
+        {
+          "id": "9:503662559533127168",
+          "name": "isExpired",
+          "type": 1
+        },
+        {
+          "id": "10:796672730650135040",
+          "name": "metadataJson",
+          "type": 9
+        }
+      ],
+      "relations": []
+    },
+    {
+      "id": "3:5565179918131756544",
+      "lastPropertyId": "7:9026988489735336192",
+      "name": "MemoryEntity",
+      "properties": [
+        {
+          "id": "1:4007722685109029120",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:4908410745287957760",
+          "name": "sessionId",
+          "type": 9
+        },
+        {
+          "id": "3:489889480656986368",
+          "name": "encryptedText",
+          "type": 9
+        },
+        {
+          "id": "4:5233342139816764416",
+          "name": "embedding",
+          "type": 28
+        },
+        {
+          "id": "5:2928854816243008256",
+          "name": "timestamp",
+          "type": 10
+        },
+        {
+          "id": "6:9151875808831475200",
+          "name": "metadataJson",
+          "type": 9
+        },
+        {
+          "id": "7:9026988489735336192",
+          "name": "importance",
+          "type": 7
+        }
+      ],
+      "relations": []
+    },
+    {
+      "id": "4:4212191750095144192",
+      "lastPropertyId": "8:3191032832508991232",
+      "name": "SessionEntity",
+      "properties": [
+        {
+          "id": "1:7781418489565113600",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:7902208929269221632",
+          "name": "sessionId",
+          "type": 9
+        },
+        {
+          "id": "3:6979558402522733824",
+          "name": "mode",
+          "type": 9
+        },
+        {
+          "id": "4:1396401923118351872",
+          "name": "startTime",
+          "type": 10
+        },
+        {
+          "id": "5:2007412192269666304",
+          "name": "endTime",
+          "type": 10
+        },
+        {
+          "id": "6:206446856905759488",
+          "name": "isActive",
+          "type": 1
+        },
+        {
+          "id": "7:5851405349870049536",
+          "name": "metadataJson",
+          "type": 9
+        },
+        {
+          "id": "8:3191032832508991232",
+          "name": "encryptionKey",
+          "type": 9
+        }
+      ],
+      "relations": []
+    },
+    {
+      "id": "5:5398475576309847296",
+      "lastPropertyId": "8:1807002689113542144",
+      "name": "TranscriptEntity",
+      "properties": [
+        {
+          "id": "1:7350394064774895616",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:2058239952326252032",
+          "name": "sessionId",
+          "type": 9
+        },
+        {
+          "id": "3:91728609553828608",
+          "name": "speaker",
+          "type": 9
+        },
+        {
+          "id": "4:570261145231283200",
+          "name": "encryptedText",
+          "type": 9
+        },
+        {
+          "id": "5:7252534220551550464",
+          "name": "timestamp",
+          "type": 10
+        },
+        {
+          "id": "6:8647838031010104832",
+          "name": "wasRedacted",
+          "type": 1
+        },
+        {
+          "id": "7:7934176081934150400",
+          "name": "metadataJson",
+          "type": 9
+        },
+        {
+          "id": "8:1807002689113542144",
+          "name": "textHash",
+          "type": 9
+        }
+      ],
+      "relations": []
+    }
+  ],
+  "lastEntityId": "5:5398475576309847296",
+  "lastIndexId": "0:0",
+  "lastRelationId": "0:0",
+  "lastSequenceId": "0:0",
+  "modelVersion": 5,
+  "modelVersionParserMinimum": 4,
+  "retiredEntityUids": [],
+  "retiredIndexUids": [],
+  "retiredPropertyUids": [],
+  "retiredRelationUids": [],
+  "version": 1
+}
