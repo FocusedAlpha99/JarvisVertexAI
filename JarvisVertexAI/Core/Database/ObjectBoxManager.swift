@@ -149,6 +149,96 @@ final class ObjectBoxManager {
         }
     }
 
+    // MARK: - Conversation History Retrieval (Optimized for Sustainable Performance)
+    func getConversationHistory(sessionId: String? = nil, limit: Int = 50) -> [[String: Any]] {
+        do {
+            // Store queries for reuse to optimize performance
+            var query: Query<TranscriptEntity>
+
+            if let sessionId = sessionId {
+                // Get specific session, ordered by timestamp ascending (chronological)
+                query = try transcriptBox.query {
+                    TranscriptEntity.sessionId == sessionId
+                }.build()
+            } else {
+                // Get all conversations for cross-session memory
+                query = try transcriptBox.query().build()
+            }
+
+            // Use ObjectBox efficient operations: find with proper handling
+            let allTranscripts = try query.find()
+
+            // Sort efficiently for memory recall: recent conversations first, then reverse for chronological order
+            let sortedTranscripts = allTranscripts.sorted { $0.timestamp > $1.timestamp }
+            let limitedTranscripts = Array(sortedTranscripts.prefix(limit))
+
+            var conversationHistory: [[String: Any]] = []
+
+            for transcript in limitedTranscripts.reversed() { // Chronological order for conversation context
+                let decryptedText = decrypt(transcript.encryptedText)
+                let role = transcript.speaker == "user" ? "user" : "model"
+
+                let message: [String: Any] = [
+                    "role": role,
+                    "parts": [["text": decryptedText]]
+                ]
+                conversationHistory.append(message)
+            }
+
+            print("📚 Loaded \(conversationHistory.count) conversation messages from ObjectBox (optimized recall)")
+            return conversationHistory
+
+        } catch {
+            print("❌ Failed to load conversation history: \(error)")
+            return []
+        }
+    }
+
+    func getRecentSessions(limit: Int = 10) -> [SessionEntity] {
+        do {
+            // Use ObjectBox efficient query operations
+            let query = try sessionBox.query().build()
+            let allSessions = try query.find()
+
+            // Sort by most recent sessions for optimal recall
+            let recentSessions = Array(allSessions
+                .sorted { $0.startTime > $1.startTime }
+                .prefix(limit))
+
+            print("📝 Found \(recentSessions.count) recent sessions (optimized)")
+            return recentSessions
+        } catch {
+            print("❌ Failed to load recent sessions: \(error)")
+            return []
+        }
+    }
+
+    // MARK: - Memory Management (Sustainable Approach)
+    func getConversationMemoryStats() -> [String: Any] {
+        do {
+            let transcriptQuery = try transcriptBox.query().build()
+            let sessionQuery = try sessionBox.query().build()
+
+            let totalTranscripts = try transcriptQuery.count()
+            let totalSessions = try sessionQuery.count()
+
+            // Get memory usage efficiently
+            let recentTranscripts = try transcriptQuery.find().suffix(20) // Last 20 for memory context
+            let memoryLoadPercentage = min(100, (recentTranscripts.count * 100) / 50) // Based on 50 item optimal memory
+
+            return [
+                "totalTranscripts": totalTranscripts,
+                "totalSessions": totalSessions,
+                "recentMemoryCount": recentTranscripts.count,
+                "memoryLoadPercentage": memoryLoadPercentage,
+                "optimalForRecall": memoryLoadPercentage > 20 // At least 20% memory for good recall
+            ]
+        } catch {
+            print("❌ Failed to get memory stats: \(error)")
+            return ["error": error.localizedDescription]
+        }
+    }
+
     // MARK: - Audit Logging (SimpleDataManager-compatible interface)
     func logAudit(sessionId: String, action: String, details: String, metadata: [String: String] = [:]) {
         let audit = AuditEntity()

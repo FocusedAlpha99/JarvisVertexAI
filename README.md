@@ -39,7 +39,7 @@ A three-mode conversational AI iOS application leveraging Google Vertex AI's Gem
 
 - **ObjectBox Database**: 100% local storage, no cloud sync
 - **AES-256 Encryption**: Device-specific encryption keys
-- **PHI/PII Redaction**: Automatic detection and removal
+- **Selective PHI Redaction**: Active in Modes 1 & 2 for medical contexts, disabled in Mode 3 for personalized conversations
 - **Zero Data Retention**: Configured at Vertex AI level
 - **CMEK Protection**: Customer-managed encryption keys with HSM
 - **VPC Service Controls**: Network isolation and data exfiltration prevention

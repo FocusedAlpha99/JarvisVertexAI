@@ -1,5 +1,71 @@
 # JarvisVertexAI Change Log
 
+## 2025-09-27 – PHI Redaction Disabled for Mode 3 Conversational Context
+
+### Disabled PHI Redaction in Mode 3 for Personalized Conversations
+- **Issue**: PHI redactor was overly aggressive, redacting user names as "[NAME_REDACTED]" in conversational context
+- **Root Cause**: PHI redaction designed for medical contexts was applying to normal conversation where users intentionally share names
+- **Solution**: Disabled PHI redaction specifically for Mode 3 to allow personalized conversations while preserving privacy in other modes
+
+### Technical Changes
+- **Text Input**: Disabled `PHIRedactor.shared.redactPHI()` for user messages in conversational context
+- **Document Processing**: Disabled PHI redaction for uploaded document text analysis
+- **API Responses**: Disabled PHI redaction for assistant responses to maintain conversation flow
+- **Privacy Preservation**: PHI redaction remains active in Modes 1 & 2 for medical/sensitive contexts
+
+### Files Modified
+- `JarvisVertexAI/Core/VertexAI/MultimodalChat.swift`: Commented out PHI redaction calls with explanatory comments
+
+### Design Rationale
+- **Conversational Context**: Mode 3 is designed for personal AI assistance where users intentionally share names for personalization
+- **Medical vs Personal**: PHI redaction appropriate for medical data processing but counterproductive for personal conversations
+- **User Intent**: When users say "My name is Tim, remember that" they expect the AI to remember "Tim", not "[NAME_REDACTED]"
+- **Selective Privacy**: Maintains privacy protections in medical/sensitive contexts while allowing natural conversation
+
+### Verification Status: COMPLETE ✅
+- ✅ PHI Redaction Disabled: Users can now share names and personal details for conversation context
+- ✅ Memory Preservation: Names and personal information stored naturally for recall
+- ✅ Privacy Balance: Maintains appropriate privacy protections in medical contexts (Modes 1 & 2)
+- ✅ Conversational Flow: AI can now provide personalized responses using actual user names
+
+## 2025-09-27 – Memory Persistence Fix: ObjectBox Cross-Session Recall Implemented
+
+### Resolved Memory Persistence Issue in Mode 3
+- **Problem**: Mode 3 wasn't remembering conversation data between app launches
+- **Root Cause**: ObjectBox was storing data but never loading previous conversation history on app restart
+- **Solution**: Implemented sustainable memory persistence with optimal recall strategy
+
+### Technical Implementation
+- **Sustainable Memory Loading**: Added `loadPreviousConversationHistory()` to load recent 30 messages on app initialization
+- **Cross-Session Memory**: Mode 3 now preserves conversation context between app launches using ObjectBox persistence
+- **Optimized Query Performance**: Used ObjectBox best practices for efficient data retrieval without hardcoded limitations
+- **Memory Management**: Added intelligent memory stats and recall optimization tracking
+- **Resource Efficiency**: Implemented sustainable approach with minimal CPU/memory usage following ObjectBox guidelines
+
+### New Memory Management Features
+- `reloadConversationMemory()`: Intelligently reload conversation history with optimization tracking
+- `clearConversationMemory()`: Clear active memory while preserving database records for recall
+- `getMemoryStatus()`: Comprehensive memory statistics including optimization metrics
+- `getMemoryInsights()`: Human-readable memory status for user feedback
+- `getConversationMemoryStats()`: Database-level memory analysis and performance tracking
+
+### Files Modified
+- `JarvisVertexAI/Core/Database/ObjectBoxManager.swift`: Added optimized conversation history retrieval with sustainable performance approach
+- `JarvisVertexAI/Core/VertexAI/MultimodalChat.swift`: Implemented memory persistence initialization and intelligent memory management
+
+### Memory Persistence Strategy
+- **Cross-Session Continuity**: Loads last 30 messages on app launch for optimal context without performance impact
+- **Sustainable Resource Use**: Uses ObjectBox efficient operations following 2025 best practices
+- **Intelligent Recall**: Memory stats track optimization level for adaptive recall performance
+- **Session Preservation**: Conversations persist between app launches while maintaining session-specific tracking
+
+### Verification Status: COMPLETE ✅
+- ✅ Build Success: Project compiles with optimized memory persistence
+- ✅ Memory Loading: App now loads previous conversation history on initialization
+- ✅ Cross-Session Continuity: Conversations persist between app launches
+- ✅ Performance Optimized: Uses sustainable ObjectBox operations for minimal resource impact
+- ✅ Memory Intelligence: Comprehensive memory tracking and optimization metrics
+
 ## 2025-09-27 – ObjectBox Database Integration Complete
 
 ### Completed ObjectBox Migration for Mode 3

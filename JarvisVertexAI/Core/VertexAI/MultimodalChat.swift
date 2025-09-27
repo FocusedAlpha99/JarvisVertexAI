@@ -95,6 +95,7 @@ final class MultimodalChat {
     private init() {
         scheduleFileCleanup()
         loadAccessToken()
+        loadPreviousConversationHistory()
     }
 
     private func loadAccessToken() {
@@ -105,6 +106,24 @@ final class MultimodalChat {
             } catch {
                 print("❌ MultimodalChat: Failed to load access token: \(error)")
             }
+        }
+    }
+
+    private func loadPreviousConversationHistory() {
+        // Load recent conversation history from ObjectBox (cross-session memory)
+        // Use sustainable approach: limit to recent 30 messages for optimal recall without performance impact
+        conversationHistory = ObjectBoxManager.shared.getConversationHistory(limit: 30)
+
+        if !conversationHistory.isEmpty {
+            print("🧠 Loaded \(conversationHistory.count) previous messages from persistent memory")
+
+            // Log memory stats for optimization tracking
+            let memoryStats = ObjectBoxManager.shared.getConversationMemoryStats()
+            if let optimalForRecall = memoryStats["optimalForRecall"] as? Bool {
+                print("🧠 Memory recall status: \(optimalForRecall ? "Optimal" : "Building")")
+            }
+        } else {
+            print("🧠 No previous conversation memory found - starting fresh")
         }
     }
 
@@ -120,8 +139,9 @@ final class MultimodalChat {
             ]
         )
 
-        conversationHistory = []
-        print("📝 Multimodal chat session started")
+        // Don't reset conversation history - keep cross-session memory
+        // conversationHistory = [] // Removed to maintain memory between sessions
+        print("📝 Multimodal chat session started (preserving conversation memory)")
     }
 
     func endSession() {
@@ -132,9 +152,63 @@ final class MultimodalChat {
         // Clean up ephemeral files immediately
         cleanupAllFiles()
 
-        conversationHistory = []
+        // Don't clear conversation history - preserve memory between sessions
+        // conversationHistory = [] // Removed to maintain memory between app launches
         currentSessionId = nil
-        print("🔒 Multimodal session ended, files deleted")
+        print("🔒 Multimodal session ended, files deleted (preserving conversation memory)")
+    }
+
+    // MARK: - Memory Management
+
+    func reloadConversationMemory() {
+        // Intelligently reload conversation history from ObjectBox
+        let previousCount = conversationHistory.count
+        conversationHistory = ObjectBoxManager.shared.getConversationHistory(limit: 30)
+
+        let newCount = conversationHistory.count
+        let memoryStats = ObjectBoxManager.shared.getConversationMemoryStats()
+
+        print("🔄 Memory reloaded: \(previousCount) → \(newCount) messages")
+        if let optimalForRecall = memoryStats["optimalForRecall"] as? Bool {
+            print("🧠 Recall optimization: \(optimalForRecall ? "✅ Optimal" : "⚠️ Building")")
+        }
+    }
+
+    func clearConversationMemory() {
+        // Clear in-memory conversation but preserve database for recall capability
+        let clearedCount = conversationHistory.count
+        conversationHistory = []
+        print("🧹 Cleared \(clearedCount) messages from active memory (database preserved for recall)")
+    }
+
+    func getMemoryStatus() -> [String: Any] {
+        let memoryStats = ObjectBoxManager.shared.getConversationMemoryStats()
+
+        return [
+            "activeConversationCount": conversationHistory.count,
+            "currentSessionId": currentSessionId ?? "none",
+            "hasActiveMemory": !conversationHistory.isEmpty,
+            "totalDatabaseTranscripts": memoryStats["totalTranscripts"] ?? 0,
+            "totalSessions": memoryStats["totalSessions"] ?? 0,
+            "memoryOptimal": memoryStats["optimalForRecall"] ?? false,
+            "memoryLoadPercentage": memoryStats["memoryLoadPercentage"] ?? 0
+        ]
+    }
+
+    func getMemoryInsights() -> String {
+        let status = getMemoryStatus()
+        let activeCount = status["activeConversationCount"] as? Int ?? 0
+        let totalCount = status["totalDatabaseTranscripts"] as? Int ?? 0
+        let isOptimal = status["memoryOptimal"] as? Bool ?? false
+
+        if totalCount == 0 {
+            return "Starting fresh - no conversation history yet. I'll remember everything you tell me."
+        } else if activeCount == 0 {
+            return "I have \(totalCount) messages in my memory database but none are currently loaded. My memory recall is available."
+        } else {
+            let memoryStatus = isOptimal ? "optimal" : "building"
+            return "I remember \(activeCount) recent messages and have \(totalCount) total in persistent memory. Recall status: \(memoryStatus)."
+        }
     }
 
     // MARK: - Message Handling
@@ -173,9 +247,10 @@ final class MultimodalChat {
             startSession()
         }
 
-        // Redact PHI from text
-        let safeText = PHIRedactor.shared.redactPHI(from: text)
-        let wasRedacted = safeText != text
+        // PHI redaction disabled for conversational context - users intentionally share names for personalization
+        // let safeText = PHIRedactor.shared.redactPHI(from: text)
+        let safeText = text
+        let wasRedacted = false // safeText != text
 
         // Store user message locally
         if let sessionId = currentSessionId {
@@ -409,9 +484,10 @@ final class MultimodalChat {
             throw MultimodalChatError.fileProcessingFailed("Could not extract text from document")
         }
 
-        // Redact PHI from document text
-        let safeText = PHIRedactor.shared.redactPHI(from: text)
-        let wasRedacted = safeText != text
+        // PHI redaction disabled for conversational context in Mode 3
+        // let safeText = PHIRedactor.shared.redactPHI(from: text)
+        let safeText = text
+        let wasRedacted = false // safeText != text
 
         // Create ephemeral reference
         let fileId = UUID().uuidString
@@ -556,8 +632,9 @@ final class MultimodalChat {
             ]
             conversationHistory.append(assistantMessage)
 
-            // Redact any PHI in response (double-check)
-            let safeResponse = PHIRedactor.shared.redactPHI(from: responseText)
+            // PHI redaction disabled for conversational responses in Mode 3
+            // let safeResponse = PHIRedactor.shared.redactPHI(from: responseText)
+            let safeResponse = responseText
 
             print("✅ Gemini multimodal response received (\(responseText.count) chars)")
             return safeResponse

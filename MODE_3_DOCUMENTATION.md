@@ -16,7 +16,7 @@ Mode 3 provides text-based conversational AI with multimodal capabilities (image
 ### Privacy & Security
 - **100% Local Storage**: ObjectBox database with no cloud sync
 - **Device-Specific Encryption**: Unique encryption keys per device
-- **PHI Redaction**: Automatic detection and removal of sensitive data
+- **Selective PHI Protection**: PHI redaction disabled for conversational context to enable personalization
 - **Ephemeral Files**: 24-hour auto-delete for attached files
 - **Audit Logging**: Complete transaction logging for compliance
 
@@ -115,10 +115,10 @@ let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidSt
 let encryptionKey = "JarvisVertexAI_\(deviceId)".sha256()
 ```
 
-#### PHI Redaction
-- All text processed through `PHIRedactor` before storage
-- Medical context detection for enhanced sensitivity
-- Automatic redaction markers for audit compliance
+#### Conversational Privacy Design
+- PHI redaction disabled for Mode 3 to enable personalized conversations
+- Users can share names and personal details for natural AI interaction
+- Medical/sensitive context protection maintained in Modes 1 & 2
 
 ## 🔐 Compliance Features
 
