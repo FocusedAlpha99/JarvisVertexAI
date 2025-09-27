@@ -240,12 +240,10 @@ final class MultimodalChat {
     // MARK: - Validation Methods
 
     private func validateConfiguration() throws {
-        guard config.isConfigured else {
-            throw MultimodalChatError.configurationMissing("Project ID or Region not configured")
-        }
-
-        if accessToken.isEmpty {
-            throw MultimodalChatError.authenticationFailed
+        // For direct Gemini API, we only need the API key
+        let apiKey = ProcessInfo.processInfo.environment["GEMINI_API_KEY"] ?? ""
+        guard !apiKey.isEmpty else {
+            throw MultimodalChatError.configurationMissing("GEMINI_API_KEY environment variable not set")
         }
     }
 
