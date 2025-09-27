@@ -188,7 +188,7 @@ final class SimpleDataManager {
         return try? JSONSerialization.data(withJSONObject: exportData, options: .prettyPrinted)
     }
 
-    func getStorageInfo() async -> (totalSize: Int64, sessionCount: Int, transcriptCount: Int, oldestData: Date?) {
+    func getStorageInfo() async throws -> Any {
         let sessions = getSessions()
         let transcripts = getTranscripts()
 
@@ -202,12 +202,40 @@ final class SimpleDataManager {
         return (totalSize, sessions.count, transcripts.count, oldestDate)
     }
 
+    // MARK: - Protocol Required Methods
+
+    func exportData() async throws -> Data {
+        let exportData: [String: Any] = [
+            "export_timestamp": Date().ISO8601Format(),
+            "database_type": "SimpleDataManager",
+            "sessions": getSessions().map { session in
+                [
+                    "sessionId": session.sessionId,
+                    "mode": session.mode,
+                    "startTime": session.startTime.ISO8601Format(),
+                    "endTime": session.endTime?.ISO8601Format() ?? "",
+                    "metadata": session.metadata,
+                    "transcripts": getTranscripts().filter { $0.sessionId == session.sessionId }.map { transcript in
+                        [
+                            "speaker": transcript.speaker,
+                            "text": transcript.text,
+                            "timestamp": transcript.timestamp.ISO8601Format(),
+                            "wasRedacted": transcript.wasRedacted,
+                            "metadata": transcript.metadata
+                        ]
+                    }
+                ]
+            }
+        ]
+
+        return try JSONSerialization.data(withJSONObject: exportData, options: .prettyPrinted)
+    }
+
     // MARK: - Audit Logging
 
-    func logAudit(action: String, sessionId: String? = nil, metadata: [String: Any] = [:]) {
-        let sessionInfo = sessionId != nil ? "Session: \(sessionId!)" : "Session: none"
+    func logAudit(sessionId: String, action: String, details: String, metadata: [String: String] = [:]) {
         let metadataInfo = metadata.isEmpty ? "" : ", Metadata: \(metadata)"
-        print("🔍 Audit: Action: \(action), \(sessionInfo)\(metadataInfo)")
+        print("🔍 Audit: Action: \(action), Session: \(sessionId), Details: \(details)\(metadataInfo)")
     }
 
 

@@ -14,11 +14,11 @@ let package = Package(
         ),
     ],
     dependencies: [
-        // ObjectBox for local database (temporarily disabled)
-        // .package(
-        //     url: "https://github.com/objectbox/objectbox-swift.git",
-        //     from: "4.0.0"
-        // ),
+        // ObjectBox for local database
+        .package(
+            url: "https://github.com/objectbox/objectbox-swift.git",
+            from: "4.4.1"
+        ),
         
         
         // Alamofire for networking (optional, for better control)
@@ -49,7 +49,7 @@ let package = Package(
         .target(
             name: "JarvisVertexAI",
             dependencies: [
-                // .product(name: "ObjectBox", package: "objectbox-swift"),
+                .product(name: "ObjectBox", package: "objectbox-swift"),
                 .product(name: "Alamofire", package: "Alamofire"),
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
                 .product(name: "CryptoSwift", package: "CryptoSwift"),

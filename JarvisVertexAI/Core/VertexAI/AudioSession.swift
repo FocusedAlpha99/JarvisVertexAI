@@ -24,13 +24,21 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         print("🎧 Audio playback finished - success: \(flag)")
+        isCurrentlyPlaying = false
 
-        // Restore recording configuration
-        #if os(iOS)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.restoreRecordingAudioSession()
+        // Check if there's more audio in the buffer
+        if !audioBuffer.isEmpty {
+            print("🎧 More audio in buffer, playing next chunk")
+            bufferTimer?.invalidate()
+            playBufferedAudio()
+        } else {
+            // Restore recording configuration
+            #if os(iOS)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                self?.restoreRecordingAudioSession()
+            }
+            #endif
         }
-        #endif
     }
 
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
@@ -77,6 +85,12 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
     private var currentSessionId: String?
     private var isActive = false
     private var isConnected = false
+
+    // Audio streaming buffer management
+    private var audioBuffer = Data()
+    private var bufferTimer: Timer?
+    private var audioPlayer: AVAudioPlayer?
+    private var isCurrentlyPlaying = false
     private var sessionResumeHandle: String?
 
     // Connection management
@@ -136,7 +150,7 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
     private var webSocketHealthMetrics = WebSocketHealthMetrics()
 
     // Audio playback (simple AVAudioPlayer with WAV wrapping for stability)
-    private var audioPlayer: AVAudioPlayer?
+    // audioPlayer is already declared above - no duplicate needed
     // Playback tail and turn guards removed for responsiveness
 
     // Live API configuration with privacy settings
@@ -1082,32 +1096,71 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
             return
         }
 
-        print("🎧 Preparing to play audio: \(audioData.count) raw bytes")
+        print("🎧 Received audio chunk: \(audioData.count) bytes")
+
+        // Add this chunk to the buffer
+        audioBuffer.append(audioData)
+
+        // Start or restart the buffer timer - wait for chunks to accumulate
+        bufferTimer?.invalidate()
+        bufferTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+            self?.playBufferedAudio()
+        }
+    }
+
+    private func playBufferedAudio() {
+        guard !audioBuffer.isEmpty && !isCurrentlyPlaying else {
+            print("🎧 Skipping playback - buffer empty or already playing")
+            return
+        }
+
+        let bufferCopy = audioBuffer
+        audioBuffer.removeAll() // Clear buffer for next chunks
+
+        print("🎧 Playing buffered audio: \(bufferCopy.count) bytes total")
 
         // Configure audio session for playback
         #if os(iOS)
         do {
             let session = AVAudioSession.sharedInstance()
-            // Temporarily switch to playback mode to ensure audio plays
-            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-            try session.setActive(true)
-            print("✅ Audio session configured for playback")
+
+            // Only configure session if not already in playback mode
+            if session.category != .playback {
+                // First deactivate the current session to avoid priority conflicts
+                try session.setActive(false, options: .notifyOthersOnDeactivation)
+
+                // Configure for playback with speaker output
+                try session.setCategory(.playback, mode: .spokenAudio, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+                try session.setActive(true)
+                print("✅ Audio session configured for playback")
+            }
         } catch {
             print("❌ Failed to configure audio session for playback: \(error)")
+            // Continue anyway - AVAudioPlayer might still work
         }
         #endif
 
         // Wrap raw PCM (24 kHz mono 16-bit) as a WAV for AVAudioPlayer
-        let wavData = createWAVData(from: audioData, sampleRate: Int(outputSampleRate), channels: 1)
-        print("🎧 Created WAV data: \(wavData.count) bytes (from \(audioData.count) PCM bytes)")
+        let wavData = createWAVData(from: bufferCopy, sampleRate: 24000, channels: 1)
+        print("🎧 Created WAV data: \(wavData.count) bytes (from \(bufferCopy.count) PCM bytes)")
+        print("🎧 Expected duration: \(String(format: "%.2f", Double(bufferCopy.count) / (2.0 * 24000.0)))s")
 
         DispatchQueue.main.async { [weak self] in
-            do {
-                self?.audioPlayer = try AVAudioPlayer(data: wavData)
-                self?.audioPlayer?.delegate = self
+            guard let self = self else { return }
 
-                guard let player = self?.audioPlayer else {
+            do {
+                // Stop any currently playing audio
+                if let currentPlayer = self.audioPlayer, currentPlayer.isPlaying {
+                    currentPlayer.stop()
+                }
+
+                self.audioPlayer = try AVAudioPlayer(data: wavData)
+                self.audioPlayer?.delegate = self
+                self.isCurrentlyPlaying = true
+
+                guard let player = self.audioPlayer else {
                     print("❌ Failed to create audio player")
+                    self.isCurrentlyPlaying = false
                     return
                 }
 
@@ -1117,25 +1170,23 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
                 let prepared = player.prepareToPlay()
                 print("🎧 Prepare to play result: \(prepared)")
 
-                if player.isPlaying {
-                    print("⚠️ Audio player already playing, stopping first")
-                    player.stop()
-                }
-
-                // Set volume to ensure audibility
+                // Set volume to maximum
                 player.volume = 1.0
 
                 let playResult = player.play()
-                print("🔊 Playing native audio response (\(audioData.count) bytes) - play result: \(playResult)")
+                print("🔊 Playing buffered audio response (\(bufferCopy.count) bytes) - play result: \(playResult)")
+                print("🔊 Playback state: currentTime=\(player.currentTime), duration=\(player.duration), playing=\(player.isPlaying)")
 
                 if !playResult {
                     print("❌ Audio play() returned false - checking player state")
                     print("📊 Player state: playing=\(player.isPlaying), duration=\(player.duration), current=\(player.currentTime)")
+                    self.isCurrentlyPlaying = false
                 }
 
             } catch {
                 print("❌ Audio playback failed: \(error)")
                 print("📊 Error details: \(error.localizedDescription)")
+                self.isCurrentlyPlaying = false
                 if let nsError = error as NSError? {
                     print("📊 Error code: \(nsError.code), domain: \(nsError.domain)")
                     print("📊 Error userInfo: \(nsError.userInfo)")
@@ -1223,6 +1274,10 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
         urlSession?.invalidateAndCancel()
 
         audioPlayer?.stop()
+        bufferTimer?.invalidate()
+        bufferTimer = nil
+        audioBuffer.removeAll()
+        isCurrentlyPlaying = false
         stopHeartbeat()
 
         // Clear sensitive data

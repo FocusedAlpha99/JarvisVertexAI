@@ -10,6 +10,12 @@ import Foundation
 #if canImport(UIKit)
 import UIKit
 #endif
+
+// Import ObjectBox for local database
+// Note: Fallback to SimpleDataManager if ObjectBox unavailable
+#if canImport(ObjectBox)
+// ObjectBox integration will be handled by generated files
+#endif
 import UniformTypeIdentifiers
 
 // MARK: - Multimodal Chat Errors
@@ -622,8 +628,9 @@ final class MultimodalChat {
 
         // Log deletion
         SimpleDataManager.shared.logAudit(
+            sessionId: currentSessionId ?? "unknown",
             action: "EPHEMERAL_FILE_DELETED",
-            sessionId: currentSessionId,
+            details: "File deleted: \(fileId)",
             metadata: ["fileId": fileId]
         )
     }
