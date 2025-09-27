@@ -23,15 +23,14 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
     // MARK: - AVAudioPlayerDelegate
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        print("🎧 Audio playback finished - success: \(flag)")
         isCurrentlyPlaying = false
 
         // Check if there's more audio in the buffer
         if !audioBuffer.isEmpty {
-            print("🎧 More audio in buffer, playing next chunk")
             bufferTimer?.invalidate()
             playBufferedAudio()
         } else {
+            print("🎧 Audio playback complete")
             // Restore recording configuration
             #if os(iOS)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
@@ -1115,7 +1114,9 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
         let bufferCopy = audioBuffer
         audioBuffer.removeAll() // Clear buffer for next chunks
 
-        print("🎧 Playing buffered audio: \(bufferCopy.count) bytes total")
+        let bufferSizeKB = bufferCopy.count / 1024
+        let expectedDuration = Double(bufferCopy.count) / (2.0 * 24000.0)
+        print("🎧 Playing \(bufferSizeKB)KB audio buffer (~\(String(format: "%.1f", expectedDuration))s)")
 
         // Configure audio session for playback
         #if os(iOS)
@@ -1140,8 +1141,6 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
 
         // Wrap raw PCM (24 kHz mono 16-bit) as a WAV for AVAudioPlayer
         let wavData = createWAVData(from: bufferCopy, sampleRate: 24000, channels: 1)
-        print("🎧 Created WAV data: \(wavData.count) bytes (from \(bufferCopy.count) PCM bytes)")
-        print("🎧 Expected duration: \(String(format: "%.2f", Double(bufferCopy.count) / (2.0 * 24000.0)))s")
 
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -1162,33 +1161,18 @@ final class AudioSession: NSObject, AVAudioPlayerDelegate, URLSessionWebSocketDe
                     return
                 }
 
-                print("🎧 Audio player created - duration: \(String(format: "%.2f", player.duration))s")
-                print("🎧 Audio player format: rate=\(player.format.sampleRate), channels=\(player.format.channelCount)")
-
-                let prepared = player.prepareToPlay()
-                print("🎧 Prepare to play result: \(prepared)")
-
-                // Set volume to maximum
+                _ = player.prepareToPlay()
                 player.volume = 1.0
-
                 let playResult = player.play()
-                print("🔊 Playing buffered audio response (\(bufferCopy.count) bytes) - play result: \(playResult)")
-                print("🔊 Playback state: currentTime=\(player.currentTime), duration=\(player.duration), playing=\(player.isPlaying)")
 
                 if !playResult {
-                    print("❌ Audio play() returned false - checking player state")
-                    print("📊 Player state: playing=\(player.isPlaying), duration=\(player.duration), current=\(player.currentTime)")
+                    print("❌ Audio playback failed to start")
                     self.isCurrentlyPlaying = false
                 }
 
             } catch {
-                print("❌ Audio playback failed: \(error)")
-                print("📊 Error details: \(error.localizedDescription)")
+                print("❌ Audio playback failed: \(error.localizedDescription)")
                 self.isCurrentlyPlaying = false
-                if let nsError = error as NSError? {
-                    print("📊 Error code: \(nsError.code), domain: \(nsError.domain)")
-                    print("📊 Error userInfo: \(nsError.userInfo)")
-                }
             }
         }
     }
