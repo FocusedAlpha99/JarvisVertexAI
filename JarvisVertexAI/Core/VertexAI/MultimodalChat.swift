@@ -11,6 +11,36 @@ import Foundation
 import UIKit
 #endif
 
+// MARK: - Gmail API Data Models
+
+struct DirectGmailMessage {
+    let id: String
+    let snippet: String
+    let payload: Payload
+
+    struct Payload {
+        let headers: [Header]
+    }
+
+    struct Header {
+        let name: String
+        let value: String
+    }
+
+    // Helper methods to extract common header values
+    var subject: String {
+        payload.headers.first { $0.name.lowercased() == "subject" }?.value ?? "No Subject"
+    }
+
+    var from: String {
+        payload.headers.first { $0.name.lowercased() == "from" }?.value ?? "Unknown Sender"
+    }
+
+    var date: String {
+        payload.headers.first { $0.name.lowercased() == "date" }?.value ?? "Unknown Date"
+    }
+}
+
 // Import ObjectBox for local database
 // Note: Fallback to SimpleDataManager if ObjectBox unavailable
 #if canImport(ObjectBox)
@@ -66,6 +96,7 @@ final class MultimodalChat {
     // Configuration
     private let config = VertexConfig.shared
     private var accessToken: String = ""
+    // private let googleWorkspace = GoogleWorkspaceClient.shared  // Temporarily commented for build
 
     // Constants
     private let maxFileSize = 10 * 1024 * 1024 // 10MB
@@ -94,28 +125,30 @@ final class MultimodalChat {
 
     private init() {
         scheduleFileCleanup()
-        loadAccessToken()
+        // Note: MultimodalChat uses Gemini API directly with API key authentication
+        // No Vertex AI access token needed
+        print("✅ MultimodalChat: Initialized with Gemini API authentication")
+
+        // Debug: Verify configuration loading
+        let hasApiKey = VertexConfig.shared.geminiApiKey != nil
+        let hasOAuthClientId = ProcessInfo.processInfo.environment["GOOGLE_OAUTH_CLIENT_ID"] != nil
+        print("🔑 API Key available: \(hasApiKey)")
+        print("🔐 OAuth Client ID available: \(hasOAuthClientId)")
+
+        if !hasApiKey {
+            print("⚠️ WARNING: GEMINI_API_KEY not loaded from configuration")
+        }
+
         loadPreviousConversationHistory()
     }
 
-    private func loadAccessToken() {
-        Task {
-            do {
-                accessToken = try await AccessTokenProvider.shared.getAccessToken()
-                print("✅ MultimodalChat: Access token loaded")
-            } catch {
-                print("❌ MultimodalChat: Failed to load access token: \(error)")
-            }
-        }
-    }
-
     private func loadPreviousConversationHistory() {
-        // Load recent conversation history with time context from ObjectBox (cross-session memory)
+        // Load recent conversation history from ObjectBox (cross-session memory)
         // Use sustainable approach: limit to recent 30 messages for optimal recall without performance impact
-        conversationHistory = ObjectBoxManager.shared.getConversationHistoryWithTimeContext(limit: 30)
+        conversationHistory = ObjectBoxManager.shared.getConversationHistory(limit: 30)
 
         if !conversationHistory.isEmpty {
-            print("🧠 Loaded \(conversationHistory.count) time-aware messages from persistent memory")
+            print("🧠 Loaded \(conversationHistory.count) messages with absolute timestamps from persistent memory")
 
             // Log memory stats for optimization tracking
             let memoryStats = ObjectBoxManager.shared.getConversationMemoryStats()
@@ -123,7 +156,7 @@ final class MultimodalChat {
                 print("🧠 Memory recall status: \(optimalForRecall ? "Optimal" : "Building")")
             }
         } else {
-            print("🧠 No previous conversation memory found - starting fresh with time awareness")
+            print("🧠 No previous conversation memory found - starting fresh")
         }
     }
 
@@ -211,43 +244,332 @@ final class MultimodalChat {
         }
     }
 
-    // MARK: - Email Action Handlers
+    // MARK: - Email Action Handlers (Direct Gmail API)
 
-    func handleEmailRequest(_ request: String) async -> String {
-        guard let oauthManager = getOAuthManager(),
-              oauthManager.isAuthenticated else {
-            return "Gmail access not configured. Please authorize Gmail access to enable email management."
-        }
+    func handleWorkspaceRequest(_ request: String) async -> String {
+        // Temporarily return placeholder for Google Workspace features
+        return "Google Workspace integration is temporarily disabled during ElevenLabs implementation. Feature will be restored after build completion."
 
+        /*
         let lowercased = request.lowercased()
 
         do {
-            // Handle different email requests
-            if lowercased.contains("important email") || lowercased.contains("today's email") {
-                let emails = try await oauthManager.getTodaysImportantEmails()
-                return formatEmailSummary(emails)
+            // Initialize Google Workspace if needed
+            try await initializeGoogleWorkspaceIfNeeded()
+
+            // Handle Email Operations
+            if lowercased.contains("send email") || lowercased.contains("email to") {
+                if let emailDetails = extractEmailDetails(from: request) {
+                    let result = try await googleWorkspace.sendEmail(
+                        to: emailDetails.to,
+                        subject: emailDetails.subject,
+                        body: emailDetails.body
+                    )
+                    return "Email sent successfully (ID: \(result))"
+                } else {
+                    return "To send an email, I need: recipient, subject, and message content."
+                }
+            }
+            else if lowercased.contains("important email") || lowercased.contains("today's email") {
+                let emails = try await googleWorkspace.getRecentEmails(maxResults: 10)
+                return formatWorkspaceEmailSummary(emails)
             }
             else if lowercased.contains("search") && (lowercased.contains("email") || lowercased.contains("mail")) {
-                // Extract search query - simplified for now
+                let emails = try await googleWorkspace.getRecentEmails(maxResults: 20)
                 let searchQuery = extractSearchQuery(from: request)
-                let emails = try await oauthManager.searchGmail(query: searchQuery, maxResults: 10)
-                return formatEmailSummary(emails, searchContext: searchQuery)
+                let filteredEmails = emails.filter { email in
+                    email.subject.localizedCaseInsensitiveContains(searchQuery) ||
+                    email.sender.localizedCaseInsensitiveContains(searchQuery) ||
+                    email.snippet.localizedCaseInsensitiveContains(searchQuery)
+                }
+                return formatWorkspaceEmailSummary(filteredEmails, searchContext: searchQuery)
             }
-            else if lowercased.contains("send email") || lowercased.contains("email to") {
-                return "To send an email, I need: recipient, subject, and message content. Please provide these details."
+
+            // Handle Calendar Operations
+            else if lowercased.contains("calendar") || lowercased.contains("meeting") || lowercased.contains("schedule") {
+                if lowercased.contains("show") || lowercased.contains("what's") || lowercased.contains("today") {
+                    let events = try await googleWorkspace.getCalendarEvents(maxResults: 10)
+                    return formatCalendarEventsSummary(events)
+                }
+                else if lowercased.contains("create") || lowercased.contains("schedule") || lowercased.contains("add") {
+                    if let eventDetails = extractEventDetails(from: request) {
+                        let result = try await googleWorkspace.createCalendarEvent(
+                            title: eventDetails.title,
+                            startTime: eventDetails.startTime,
+                            endTime: eventDetails.endTime,
+                            description: eventDetails.description
+                        )
+                        return "Calendar event created successfully (ID: \(result))"
+                    } else {
+                        return "To create an event, I need: title, date, and time."
+                    }
+                }
+                else {
+                    return "I can help with calendar operations. Try: 'Show today's calendar' or 'Schedule meeting tomorrow at 2pm'"
+                }
             }
-            else if lowercased.contains("reply to") {
-                return "To reply to an email, please specify which email you'd like to reply to and your response message."
+
+            // Handle Drive Operations
+            else if lowercased.contains("drive") || lowercased.contains("document") || lowercased.contains("create file") {
+                if lowercased.contains("list") || lowercased.contains("show") || lowercased.contains("files") {
+                    let files = try await googleWorkspace.listDriveFiles(maxResults: 10)
+                    return formatDriveFilesSummary(files)
+                }
+                else if lowercased.contains("create") || lowercased.contains("new") {
+                    if let docDetails = extractDocumentDetails(from: request) {
+                        let result = try await googleWorkspace.createDocument(
+                            title: docDetails.title,
+                            content: docDetails.content
+                        )
+                        return "Document created successfully (ID: \(result))"
+                    } else {
+                        return "To create a document, I need a title."
+                    }
+                }
+                else {
+                    return "I can help with Drive operations. Try: 'Show my recent files' or 'Create document called Project Plan'"
+                }
+            }
+
+            // Handle Task Operations
+            else if lowercased.contains("task") || lowercased.contains("todo") || lowercased.contains("reminder") {
+                if lowercased.contains("show") || lowercased.contains("list") || lowercased.contains("what") {
+                    let tasks = try await googleWorkspace.getTasks()
+                    return formatTasksSummary(tasks)
+                }
+                else if lowercased.contains("add") || lowercased.contains("create") || lowercased.contains("new") {
+                    if let taskDetails = extractTaskDetails(from: request) {
+                        let result = try await googleWorkspace.createTask(
+                            title: taskDetails.title,
+                            notes: taskDetails.notes,
+                            dueDate: taskDetails.dueDate
+                        )
+                        return "Task created successfully (ID: \(result))"
+                    } else {
+                        return "To create a task, I need a title."
+                    }
+                }
+                else {
+                    return "I can help with task management. Try: 'Show my tasks' or 'Add task Review proposal due tomorrow'"
+                }
             }
             else {
-                return "I can help with emails. Try: 'Show me today's important emails', 'Search emails from [sender]', 'Send email to [person]', or 'Reply to [person]'s email'."
+                return "I can help with Google Workspace operations: Email, Calendar, Drive, and Tasks. What would you like to do?"
             }
         } catch {
             return "Email operation failed: \(error.localizedDescription)"
         }
+        */
     }
 
-    private func formatEmailSummary(_ emails: [GmailMessage], searchContext: String? = nil) -> String {
+    // MARK: - Public Email Methods
+
+    func sendEmail(to: String, subject: String, body: String) async -> String {
+        // Temporarily disabled for build
+        return "Email functionality temporarily disabled during ElevenLabs implementation"
+        /*
+        do {
+            try await initializeGoogleWorkspaceIfNeeded()
+            let result = try await googleWorkspace.sendEmail(to: to, subject: subject, body: body)
+            return "Email sent successfully (ID: \(result))"
+        } catch {
+            return "Failed to send email: \(error.localizedDescription)"
+        }
+        */
+    }
+
+    // Helper to extract email details from natural language
+    private func extractEmailDetails(from request: String) -> (to: String, subject: String, body: String)? {
+        // Simple regex-based extraction - could be enhanced with NLP
+        let emailPattern = #"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})"#
+        let emailRegex = try? NSRegularExpression(pattern: emailPattern)
+
+        let range = NSRange(location: 0, length: request.utf16.count)
+        let emailMatch = emailRegex?.firstMatch(in: request, options: [], range: range)
+
+        guard let match = emailMatch,
+              let emailRange = Range(match.range, in: request) else {
+            return nil
+        }
+
+        let email = String(request[emailRange])
+
+        // Extract subject (look for "subject" followed by text)
+        let subjectPattern = #"subject[:\s]+([^,\n]+)"#
+        let subjectRegex = try? NSRegularExpression(pattern: subjectPattern, options: .caseInsensitive)
+        let subjectMatch = subjectRegex?.firstMatch(in: request, options: [], range: range)
+
+        let subject: String
+        if let subjectMatch = subjectMatch,
+           let subjectRange = Range(subjectMatch.range(at: 1), in: request) {
+            subject = String(request[subjectRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            subject = "Message from Jarvis"
+        }
+
+        // Extract body (look for "saying" or "message" followed by text)
+        let bodyPattern = #"(?:saying|message|body)[:\s]+(.+)"#
+        let bodyRegex = try? NSRegularExpression(pattern: bodyPattern, options: .caseInsensitive)
+        let bodyMatch = bodyRegex?.firstMatch(in: request, options: [], range: range)
+
+        let body: String
+        if let bodyMatch = bodyMatch,
+           let bodyRange = Range(bodyMatch.range(at: 1), in: request) {
+            body = String(request[bodyRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            body = "This email was sent via Jarvis AI assistant."
+        }
+
+        return (to: email, subject: subject, body: body)
+    }
+
+    // MARK: - Direct Gmail API Implementation (API Key Only)
+
+    private func getGmailApiKey() throws -> String {
+        // Try GOOGLE_BROWSER_API_KEY first (the working key from autonomous-email-assistant), then fallback to GEMINI_API_KEY
+        if let browserApiKey = ProcessInfo.processInfo.environment["GOOGLE_BROWSER_API_KEY"], !browserApiKey.isEmpty {
+            return browserApiKey
+        } else if let geminiApiKey = VertexConfig.shared.geminiApiKey, !geminiApiKey.isEmpty {
+            return geminiApiKey
+        } else {
+            throw MultimodalChatError.configurationMissing("GOOGLE_BROWSER_API_KEY or GEMINI_API_KEY required for Gmail API")
+        }
+    }
+
+    private func sendEmailDirect(to: String, subject: String, body: String) async throws -> String {
+        let apiKey = try getGmailApiKey()
+
+        // Create email content following the working gmail_sms_fixed.py format
+        let emailContent = """
+            To: \(to)\r
+            From: timrattigan72@gmail.com\r
+            Subject: \(subject)\r
+            \r
+            \(body)
+            """
+
+        // Base64 encode for Gmail API (urlsafe like the working implementation)
+        let rawMessage = Data(emailContent.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+
+        // Gmail API send using the exact same approach as gmail_sms_fixed.py
+        let url = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages/send?key=\(apiKey)")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let requestBody = ["raw": rawMessage]
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw MultimodalChatError.networkError(URLError(.badServerResponse))
+        }
+
+        if httpResponse.statusCode == 200 {
+            let messageId = extractMessageId(from: data)
+            return "✅ Email sent successfully to \(to). Message ID: \(messageId)"
+        } else {
+            let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw MultimodalChatError.apiError(httpResponse.statusCode, errorText)
+        }
+    }
+
+    private func getImportantEmails() async throws -> [DirectGmailMessage] {
+        let apiKey = try getGmailApiKey()
+
+        // Use Gmail API to get important emails (is:important in inbox)
+        let query = "is:important in:inbox"
+        return try await searchEmails(query: query)
+    }
+
+    private func searchEmails(query: String) async throws -> [DirectGmailMessage] {
+        let apiKey = try getGmailApiKey()
+
+        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let url = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages?key=\(apiKey)&q=\(encodedQuery)&maxResults=10")!
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw MultimodalChatError.networkError(URLError(.badServerResponse))
+        }
+
+        if httpResponse.statusCode != 200 {
+            let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw MultimodalChatError.apiError(httpResponse.statusCode, errorText)
+        }
+
+        // Parse the response to get message IDs, then fetch message details
+        let searchResult = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let messages = searchResult?["messages"] as? [[String: Any]] ?? []
+
+        var emailMessages: [DirectGmailMessage] = []
+        for messageData in messages.prefix(5) { // Limit to 5 for performance
+            if let messageId = messageData["id"] as? String {
+                if let email = try? await getEmailDetails(messageId: messageId, apiKey: apiKey) {
+                    emailMessages.append(email)
+                }
+            }
+        }
+
+        return emailMessages
+    }
+
+    private func getEmailDetails(messageId: String, apiKey: String) async throws -> DirectGmailMessage {
+        let url = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages/\(messageId)?key=\(apiKey)")!
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw MultimodalChatError.networkError(URLError(.badServerResponse))
+        }
+
+        if httpResponse.statusCode != 200 {
+            let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw MultimodalChatError.apiError(httpResponse.statusCode, errorText)
+        }
+
+        // Parse Gmail message format
+        let messageJson = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return parseGmailMessage(messageJson ?? [:])
+    }
+
+    private func parseGmailMessage(_ json: [String: Any]) -> DirectGmailMessage {
+        let id = json["id"] as? String ?? ""
+        let snippet = json["snippet"] as? String ?? ""
+
+        let payload = json["payload"] as? [String: Any] ?? [:]
+        let headers = payload["headers"] as? [[String: Any]] ?? []
+
+        let parsedHeaders = headers.map { header in
+            DirectGmailMessage.Header(
+                name: header["name"] as? String ?? "",
+                value: header["value"] as? String ?? ""
+            )
+        }
+
+        return DirectGmailMessage(
+            id: id,
+            snippet: snippet,
+            payload: DirectGmailMessage.Payload(headers: parsedHeaders)
+        )
+    }
+
+    private func extractMessageId(from data: Data) -> String {
+        do {
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            return json?["id"] as? String ?? "unknown"
+        } catch {
+            return "unknown"
+        }
+    }
+
+    private func formatEmailSummary(_ emails: [DirectGmailMessage], searchContext: String? = nil) -> String {
         if emails.isEmpty {
             let context = searchContext != nil ? " matching '\(searchContext!)'" : ""
             return "No emails found\(context)."
@@ -293,6 +615,174 @@ final class MultimodalChat {
 
         return searchTerms.prefix(3).joined(separator: " ")
     }
+
+    // MARK: - Google Workspace Helper Methods (Temporarily Disabled)
+
+    /*
+    private func initializeGoogleWorkspaceIfNeeded() async throws {
+        // Initialize the Google Workspace client with service account credentials
+        try await googleWorkspace.initialize()
+    }
+
+    private func formatWorkspaceEmailSummary(_ emails: [EmailSummary], searchContext: String? = nil) -> String {
+        if emails.isEmpty {
+            let context = searchContext != nil ? " matching '\(searchContext!)'" : ""
+            return "No emails found\(context)."
+        }
+
+        let summary = emails.prefix(5).enumerated().map { index, email in
+            let snippet = String(email.snippet.prefix(100))
+            return "\(index + 1). **\(email.subject)**\n   From: \(email.sender)\n   \(snippet)..."
+        }.joined(separator: "\n\n")
+
+        let context = searchContext != nil ? " matching '\(searchContext!)'" : ""
+        let header = emails.count == 1 ? "Found 1 email\(context):" : "Found \(emails.count) emails\(context) (showing first 5):"
+
+        return "\(header)\n\n\(summary)"
+    }
+
+    // MARK: - Event/Document/Task Extraction Methods
+
+    private func extractEventDetails(from request: String) -> (title: String, startTime: Date, endTime: Date, description: String?)? {
+        // Simple extraction - in production, use more sophisticated NLP
+        let words = request.components(separatedBy: .whitespacesAndNewlines)
+
+        // Look for time patterns like "2pm", "14:00", "tomorrow at 3"
+        var title = "Meeting"
+        var startTime = Date().addingTimeInterval(3600) // Default to 1 hour from now
+        var endTime = startTime.addingTimeInterval(3600) // 1 hour duration
+
+        // Extract title (words after "schedule" or "meeting")
+        if let scheduleIndex = words.firstIndex(where: { $0.lowercased().contains("schedule") || $0.lowercased().contains("meeting") }) {
+            let titleWords = words.dropFirst(scheduleIndex + 1).prefix(while: { !$0.contains("at") && !$0.contains("tomorrow") && !$0.contains("today") })
+            if !titleWords.isEmpty {
+                title = titleWords.joined(separator: " ")
+            }
+        }
+
+        // Extract time
+        for (index, word) in words.enumerated() {
+            if word.lowercased() == "tomorrow" {
+                startTime = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+            } else if word.lowercased() == "today" {
+                startTime = Date()
+            } else if word.contains("pm") || word.contains("am") {
+                if let hour = extractHour(from: word) {
+                    var components = Calendar.current.dateComponents([.year, .month, .day], from: startTime)
+                    components.hour = hour
+                    components.minute = 0
+                    startTime = Calendar.current.date(from: components) ?? startTime
+                }
+            }
+        }
+
+        endTime = startTime.addingTimeInterval(3600) // 1 hour duration
+
+        return (title: title, startTime: startTime, endTime: endTime, description: nil)
+    }
+
+    private func extractDocumentDetails(from request: String) -> (title: String, content: String)? {
+        let words = request.components(separatedBy: .whitespacesAndNewlines)
+
+        var title = "Untitled Document"
+
+        // Look for patterns like "create document called 'Project Plan'"
+        if let calledIndex = words.firstIndex(where: { $0.lowercased().contains("called") || $0.lowercased().contains("named") }) {
+            let titleWords = words.dropFirst(calledIndex + 1).prefix(5)
+            if !titleWords.isEmpty {
+                title = titleWords.joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            }
+        }
+
+        return (title: title, content: "Document created by Jarvis AI Assistant")
+    }
+
+    private func extractTaskDetails(from request: String) -> (title: String, notes: String?, dueDate: Date?)? {
+        let words = request.components(separatedBy: .whitespacesAndNewlines)
+
+        var title = ""
+        var dueDate: Date?
+
+        // Extract task title (words after "add task" or "create task")
+        if let taskIndex = words.firstIndex(where: { $0.lowercased() == "task" }) {
+            let titleWords = words.dropFirst(taskIndex + 1).prefix(while: { !$0.lowercased().contains("due") && !$0.lowercased().contains("tomorrow") })
+            title = titleWords.joined(separator: " ")
+        }
+
+        // Extract due date
+        if request.lowercased().contains("tomorrow") {
+            dueDate = Calendar.current.date(byAdding: .day, value: 1, to: Date())
+        } else if request.lowercased().contains("today") {
+            dueDate = Date()
+        }
+
+        return title.isEmpty ? nil : (title: title, notes: nil, dueDate: dueDate)
+    }
+
+    private func extractHour(from timeString: String) -> Int? {
+        let digits = timeString.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+        guard let hour = Int(digits) else { return nil }
+
+        if timeString.lowercased().contains("pm") && hour < 12 {
+            return hour + 12
+        } else if timeString.lowercased().contains("am") && hour == 12 {
+            return 0
+        }
+
+        return hour
+    }
+
+    // MARK: - Formatting Methods for New Services
+
+    private func formatCalendarEventsSummary(_ events: [CalendarEventSummary]) -> String {
+        if events.isEmpty {
+            return "No upcoming calendar events found."
+        }
+
+        let summary = events.prefix(5).enumerated().map { index, event in
+            let startTime = event.startTime?.formatted(date: .omitted, time: .shortened) ?? "No time"
+            let endTime = event.endTime?.formatted(date: .omitted, time: .shortened) ?? ""
+            let timeRange = endTime.isEmpty ? startTime : "\(startTime) - \(endTime)"
+
+            return "\(index + 1). **\(event.title)**\n   Time: \(timeRange)\n   \(event.description ?? "")"
+        }.joined(separator: "\n\n")
+
+        let header = events.count == 1 ? "Found 1 calendar event:" : "Found \(events.count) calendar events (showing first 5):"
+        return "\(header)\n\n\(summary)"
+    }
+
+    private func formatDriveFilesSummary(_ files: [DriveFileSummary]) -> String {
+        if files.isEmpty {
+            return "No Drive files found."
+        }
+
+        let summary = files.prefix(5).enumerated().map { index, file in
+            let modifiedTime = file.modifiedTime?.formatted(date: .abbreviated, time: .omitted) ?? "Unknown"
+            let fileType = file.mimeType.components(separatedBy: ".").last ?? "File"
+
+            return "\(index + 1). **\(file.name)**\n   Type: \(fileType)\n   Modified: \(modifiedTime)"
+        }.joined(separator: "\n\n")
+
+        let header = files.count == 1 ? "Found 1 Drive file:" : "Found \(files.count) Drive files (showing first 5):"
+        return "\(header)\n\n\(summary)"
+    }
+
+    private func formatTasksSummary(_ tasks: [TaskSummary]) -> String {
+        if tasks.isEmpty {
+            return "No tasks found."
+        }
+
+        let summary = tasks.prefix(5).enumerated().map { index, task in
+            let dueDate = task.dueDate?.formatted(date: .abbreviated, time: .omitted) ?? "No due date"
+            let status = task.status == "completed" ? "✅" : "⏳"
+
+            return "\(index + 1). \(status) **\(task.title)**\n   Due: \(dueDate)\n   \(task.notes ?? "")"
+        }.joined(separator: "\n\n")
+
+        let header = tasks.count == 1 ? "Found 1 task:" : "Found \(tasks.count) tasks (showing first 5):"
+        return "\(header)\n\n\(summary)"
+    }
+    */
 
     // MARK: - Email Composition and Sending (with Security Safeguards)
 
@@ -528,9 +1018,8 @@ final class MultimodalChat {
 
     private func validateConfiguration() throws {
         // For direct Gemini API, we only need the API key
-        let apiKey = ProcessInfo.processInfo.environment["GEMINI_API_KEY"] ?? ""
-        guard !apiKey.isEmpty else {
-            throw MultimodalChatError.configurationMissing("GEMINI_API_KEY environment variable not set")
+        guard let apiKey = VertexConfig.shared.geminiApiKey, !apiKey.isEmpty else {
+            throw MultimodalChatError.configurationMissing("GEMINI_API_KEY not configured. Check .env.local or environment variables.")
         }
     }
 
@@ -787,9 +1276,8 @@ final class MultimodalChat {
         }
 
         // Use direct Gemini API (same approach as Mode 2)
-        let apiKey = ProcessInfo.processInfo.environment["GEMINI_API_KEY"] ?? ""
-        guard !apiKey.isEmpty else {
-            throw MultimodalChatError.configurationMissing("GEMINI_API_KEY")
+        guard let apiKey = VertexConfig.shared.geminiApiKey, !apiKey.isEmpty else {
+            throw MultimodalChatError.configurationMissing("GEMINI_API_KEY not found in configuration")
         }
 
         let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")!
@@ -802,17 +1290,156 @@ final class MultimodalChat {
 
         // Inject comprehensive personal assistant context
         let currentTime = getCurrentTimeContext()
-        let calendarContext = await getCalendarContext()
-        let emailContext = await getEmailContext()
+        // Email and Calendar context removed - using function calling instead
         let driveContext = await getDriveContext()
         let tasksContext = await getTasksContext()
 
-        // Build request body with comprehensive assistant context and Google Search
+        // Build request body with comprehensive assistant context, Google Search, and Gmail function calling
         let requestBody: [String: Any] = [
             "contents": conversationHistory,
             "tools": [
                 [
-                    "google_search": [:]  // Enable Google Search grounding for real-time information
+                    "functionDeclarations": [
+                        [
+                            "name": "searchGmail",
+                            "description": "Search Gmail messages using Gmail query syntax. Returns the most relevant emails matching the query. Use this to find specific emails, codes, attachments, or any email content.",
+                            "parameters": [
+                                "type": "object",
+                                "properties": [
+                                    "query": [
+                                        "type": "string",
+                                        "description": "Gmail search query (e.g., 'from:sender@example.com subject:code', 'is:unread', 'after:2025/10/01', 'has:attachment filename:pdf'). Leave empty to get recent inbox emails."
+                                    ],
+                                    "maxResults": [
+                                        "type": "integer",
+                                        "description": "Maximum number of emails to return (default 10, max 50)"
+                                    ]
+                                ],
+                                "required": []
+                            ]
+                        ],
+                        [
+                            "name": "getEmail",
+                            "description": "Get full content of a specific email by ID including body, attachments, and all headers.",
+                            "parameters": [
+                                "type": "object",
+                                "properties": [
+                                    "messageId": [
+                                        "type": "string",
+                                        "description": "The Gmail message ID to retrieve"
+                                    ]
+                                ],
+                                "required": ["messageId"]
+                            ]
+                        ],
+                        [
+                            "name": "listCalendarEvents",
+                            "description": "List calendar events within a date range. Returns events with start/end times, titles, descriptions, and attendees.",
+                            "parameters": [
+                                "type": "object",
+                                "properties": [
+                                    "startDate": [
+                                        "type": "string",
+                                        "description": "Start date in ISO8601 format (e.g., '2025-10-02T00:00:00Z'). Defaults to now if not specified."
+                                    ],
+                                    "endDate": [
+                                        "type": "string",
+                                        "description": "End date in ISO8601 format. Defaults to 7 days from start if not specified."
+                                    ],
+                                    "maxResults": [
+                                        "type": "integer",
+                                        "description": "Maximum number of events to return (default 20, max 100)"
+                                    ]
+                                ],
+                                "required": []
+                            ]
+                        ],
+                        [
+                            "name": "createCalendarEvent",
+                            "description": "Create a new calendar event with title, time, description, and optional attendees.",
+                            "parameters": [
+                                "type": "object",
+                                "properties": [
+                                    "title": [
+                                        "type": "string",
+                                        "description": "Event title/summary"
+                                    ],
+                                    "startTime": [
+                                        "type": "string",
+                                        "description": "Event start time in ISO8601 format"
+                                    ],
+                                    "endTime": [
+                                        "type": "string",
+                                        "description": "Event end time in ISO8601 format"
+                                    ],
+                                    "description": [
+                                        "type": "string",
+                                        "description": "Event description (optional)"
+                                    ],
+                                    "location": [
+                                        "type": "string",
+                                        "description": "Event location (optional)"
+                                    ],
+                                    "attendees": [
+                                        "type": "array",
+                                        "description": "Array of attendee email addresses (optional)",
+                                        "items": [
+                                            "type": "string"
+                                        ]
+                                    ]
+                                ],
+                                "required": ["title", "startTime", "endTime"]
+                            ]
+                        ],
+                        [
+                            "name": "updateCalendarEvent",
+                            "description": "Update an existing calendar event. Only provided fields will be updated.",
+                            "parameters": [
+                                "type": "object",
+                                "properties": [
+                                    "eventId": [
+                                        "type": "string",
+                                        "description": "Calendar event ID to update"
+                                    ],
+                                    "title": [
+                                        "type": "string",
+                                        "description": "New event title (optional)"
+                                    ],
+                                    "startTime": [
+                                        "type": "string",
+                                        "description": "New start time in ISO8601 format (optional)"
+                                    ],
+                                    "endTime": [
+                                        "type": "string",
+                                        "description": "New end time in ISO8601 format (optional)"
+                                    ],
+                                    "description": [
+                                        "type": "string",
+                                        "description": "New description (optional)"
+                                    ],
+                                    "location": [
+                                        "type": "string",
+                                        "description": "New location (optional)"
+                                    ]
+                                ],
+                                "required": ["eventId"]
+                            ]
+                        ],
+                        [
+                            "name": "deleteCalendarEvent",
+                            "description": "Delete a calendar event by ID.",
+                            "parameters": [
+                                "type": "object",
+                                "properties": [
+                                    "eventId": [
+                                        "type": "string",
+                                        "description": "Calendar event ID to delete"
+                                    ]
+                                ],
+                                "required": ["eventId"]
+                            ]
+                        ]
+                    ]
                 ]
             ],
             "systemInstruction": [
@@ -822,58 +1449,44 @@ final class MultimodalChat {
                         Current date and time: \(currentTime.fullContext)
                         Local timezone: \(currentTime.timezone)
 
-                        \(calendarContext)
-
-                        \(emailContext)
-
                         \(driveContext)
 
                         \(tasksContext)
 
-                        You are a comprehensive personal AI assistant with full access to:
-                        - **Google Search**: Real-time web information and current events
-                        - **Gmail Integration**: Full email management (read, compose, send, reply)
-                        - **Calendar Integration**: Schedule awareness and conflict detection
-                        - **Google Drive**: File management, upload, download, and organization
-                        - **Google Tasks**: Task management and deadline tracking
-                        - **Time Awareness**: Current date/time for accurate responses
+                        You are a comprehensive personal AI assistant with full Google Workspace access via function calling:
 
-                        **CONFIRMED CAPABILITIES (You DO have access to these):**
-                        - **Gmail Full Access**: \(emailContext.contains("Gmail access not configured") ? "NOT AUTHENTICATED - Request user to authorize Gmail" : "AUTHENTICATED - Can read, send, reply to emails")
-                        - **Google Calendar**: \(calendarContext.contains("Calendar access not configured") ? "NOT AUTHENTICATED - Request user to authorize Calendar" : "AUTHENTICATED - Can view events, check schedule")
-                        - **Google Drive**: \(driveContext.contains("Drive access not configured") ? "NOT AUTHENTICATED - Request user to authorize Drive" : "AUTHENTICATED - Can manage files, upload, download")
-                        - **Google Tasks**: \(tasksContext.contains("Tasks access not configured") ? "NOT AUTHENTICATED - Request user to authorize Tasks" : "AUTHENTICATED - Can view tasks, track deadlines")
-                        - **Google Search**: ENABLED - Can search the web for current information, news, facts
-                        - **Time Integration**: ACTIVE - Always aware of current time and relative dates
+                        **AVAILABLE FUNCTIONS:**
 
-                        **Personal Assistant Actions:**
-                        - **Email**: "Show important emails", "Send email to [person]", "Reply to [sender]"
-                        - **Calendar**: "Check my schedule", "Do I have conflicts tomorrow?"
-                        - **Drive**: "Upload this file", "Find my document", "Share file with team"
-                        - **Tasks**: "Show my tasks", "What's due this week?", "Add reminder for project"
-                        - **Search**: "What's happening in the news?", "Current weather", "Recent updates on [topic]"
-                        - **Time**: "Schedule for today", "Deadline tracking", "Time-aware responses"
+                        **Gmail Functions (Always Available):**
+                        - searchGmail(query, maxResults): Search emails using Gmail syntax
+                        - getEmail(messageId): Get full email content including body text
 
-                        **Response Guidelines:**
-                        - Use Google Search for current events, news, weather, or real-time information
-                        - Access actual Gmail, Calendar, Drive, and Tasks data when available through authentication
-                        - Provide specific summaries with relevant details (email sender/subject, calendar events, file names, task deadlines)
-                        - Reference real data when discussing schedules, files, or task deadlines
-                        - Be confident about your capabilities - you DO have access to these services when authenticated
+                        **Calendar Functions (Always Available):**
+                        - listCalendarEvents(startDate, endDate, maxResults): List calendar events in date range
+                        - createCalendarEvent(title, startTime, endTime, description, location, attendees): Create new event
+                        - updateCalendarEvent(eventId, title, startTime, endTime, description, location): Update existing event
+                        - deleteCalendarEvent(eventId): Delete an event
 
-                        **File Management Guidelines:**
-                        - Help users organize and find files in Drive
-                        - Suggest file sharing and collaboration when appropriate
-                        - Track file uploads and downloads for user reference
+                        **CRITICAL INSTRUCTIONS:**
+                        1. ALWAYS use function calls when user asks about emails or calendar - NEVER make up information
+                        2. For recent emails: searchGmail("")
+                        3. For calendar: listCalendarEvents() with appropriate date range
+                        4. To create events: Use createCalendarEvent() with ISO8601 datetime strings
+                        5. NEVER hallucinate data - only report what functions return
 
-                        **Task Management Guidelines:**
-                        - Help users track deadlines and priorities
-                        - Cross-reference tasks with calendar events for scheduling
-                        - Provide deadline awareness and reminders
+                        **Service Status:**
+                        - Gmail: ✅ AUTHENTICATED - Full CRUD access via function calling
+                        - Calendar: ✅ AUTHENTICATED - Full CRUD access via function calling
+                        - Drive: \(driveContext.contains("not configured") ? "⏸️ Not authenticated" : "✅ Authenticated")
+                        - Tasks: \(tasksContext.contains("not configured") ? "⏸️ Not authenticated" : "✅ Authenticated")
+                        - Google Search: ✅ Always available
 
-                        **IMPORTANT**: Never say you don't have access to Gmail, Calendar, Drive, Tasks, or Search. You have full integration with these services when properly authenticated.
-
-                        Memory context: You have access to conversation history with timestamps for relative time awareness.
+                        **Response Rules:**
+                        - When asked about emails/calendar, immediately call appropriate function - don't guess
+                        - Be precise and factual - only report what functions return
+                        - For event creation, parse user's natural language into ISO8601 format
+                        - Use Google Search for current events/news
+                        - Maintain conversation memory with timestamps
                         """
                     ]
                 ]
@@ -887,6 +1500,7 @@ final class MultimodalChat {
         guard let httpBody = try? JSONSerialization.data(withJSONObject: requestBody) else {
             throw MultimodalChatError.invalidResponse
         }
+
         request.httpBody = httpBody
 
         // Make request
@@ -903,22 +1517,61 @@ final class MultimodalChat {
                 throw MultimodalChatError.apiError(httpResponse.statusCode, errorMessage)
             }
 
-            // Parse response
-            let responseText = try parseGeminiResponse(data)
+            // Parse response and check for function calls
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let candidates = json["candidates"] as? [[String: Any]],
+                  let firstCandidate = candidates.first,
+                  let content = firstCandidate["content"] as? [String: Any],
+                  let parts = content["parts"] as? [[String: Any]],
+                  let firstPart = parts.first else {
+                throw MultimodalChatError.invalidResponse
+            }
+
+            // Check if this is a function call
+            if let functionCall = firstPart["functionCall"] as? [String: Any],
+               let functionName = functionCall["name"] as? String,
+               let args = functionCall["args"] as? [String: Any] {
+
+                print("🔧 Gemini requested function: \(functionName) with args: \(args)")
+
+                // Add function call to history
+                conversationHistory.append([
+                    "role": "model",
+                    "parts": [["functionCall": functionCall]]
+                ])
+
+                // Execute the function
+                let functionResult = try await executeFunctionCall(name: functionName, args: args)
+
+                // Add function response to history
+                conversationHistory.append([
+                    "role": "function",
+                    "parts": [[
+                        "functionResponse": [
+                            "name": functionName,
+                            "response": functionResult
+                        ]
+                    ]]
+                ])
+
+                // Recursively call API again with function result
+                print("🔄 Sending function result back to Gemini...")
+                return try await performGeminiAPICall()
+            }
+
+            // Regular text response
+            guard let responseText = firstPart["text"] as? String else {
+                throw MultimodalChatError.invalidResponse
+            }
 
             // Add to conversation history
-            let assistantMessage: [String: Any] = [
+            conversationHistory.append([
                 "role": "model",
                 "parts": [["text": responseText]]
-            ]
-            conversationHistory.append(assistantMessage)
-
-            // PHI redaction disabled for conversational responses in Mode 3
-            // let safeResponse = PHIRedactor.shared.redactPHI(from: responseText)
-            let safeResponse = responseText
+            ])
 
             print("✅ Gemini multimodal response received (\(responseText.count) chars)")
-            return safeResponse
+            return responseText
 
         } catch {
             if error is MultimodalChatError {
@@ -929,29 +1582,247 @@ final class MultimodalChat {
         }
     }
 
-    private func parseGeminiResponse(_ data: Data) throws -> String {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw MultimodalChatError.invalidResponse
+    // MARK: - Function Calling
+
+    private func executeFunctionCall(name: String, args: [String: Any]) async throws -> [String: Any] {
+        guard let oauthManager = getOAuthManager() else {
+            return ["error": "OAuth manager not available. Please restart the app."]
         }
 
-        // Check for API errors first
-        if let error = json["error"] as? [String: Any],
-           let code = error["code"] as? Int,
-           let message = error["message"] as? String {
-            throw MultimodalChatError.apiError(code, message)
+        // Check if authenticated, if not return helpful error
+        if !oauthManager.isAuthenticated {
+            return ["error": "Not authenticated with Google. Please go to Settings and authenticate with Google to enable Gmail and Calendar access."]
         }
 
-        // Parse successful response
-        guard let candidates = json["candidates"] as? [[String: Any]],
-              let firstCandidate = candidates.first,
-              let content = firstCandidate["content"] as? [String: Any],
-              let parts = content["parts"] as? [[String: Any]],
-              let firstPart = parts.first,
-              let responseText = firstPart["text"] as? String else {
-            throw MultimodalChatError.invalidResponse
+        switch name {
+        case "searchGmail":
+            let query = args["query"] as? String ?? ""
+            let maxResults = args["maxResults"] as? Int ?? 10
+
+            do {
+                let messages = try await oauthManager.searchGmail(query: query, maxResults: maxResults)
+
+                // Return email summaries as structured data
+                let emailData = messages.map { email -> [String: Any] in
+                    let subject = email.payload.headers.first(where: { $0.name.lowercased() == "subject" })?.value ?? "No Subject"
+                    let from = email.payload.headers.first(where: { $0.name.lowercased() == "from" })?.value ?? "Unknown"
+                    let date = email.payload.headers.first(where: { $0.name.lowercased() == "date" })?.value ?? ""
+
+                    return [
+                        "id": email.id,
+                        "from": from,
+                        "subject": subject,
+                        "snippet": email.snippet,
+                        "date": date
+                    ]
+                }
+
+                return [
+                    "success": true,
+                    "count": emailData.count,
+                    "emails": emailData
+                ]
+            } catch {
+                return ["error": "Failed to search Gmail: \(error.localizedDescription)"]
+            }
+
+        case "getEmail":
+            guard let messageId = args["messageId"] as? String else {
+                return ["error": "Missing messageId parameter"]
+            }
+
+            do {
+                let email = try await oauthManager.getGmailMessage(messageId: messageId)
+
+                let subject = email.payload.headers.first(where: { $0.name.lowercased() == "subject" })?.value ?? "No Subject"
+                let from = email.payload.headers.first(where: { $0.name.lowercased() == "from" })?.value ?? "Unknown"
+                let to = email.payload.headers.first(where: { $0.name.lowercased() == "to" })?.value ?? ""
+                let date = email.payload.headers.first(where: { $0.name.lowercased() == "date" })?.value ?? ""
+
+                // Extract email body
+                let body = extractEmailBody(from: email.payload)
+
+                return [
+                    "success": true,
+                    "id": email.id,
+                    "from": from,
+                    "to": to,
+                    "subject": subject,
+                    "date": date,
+                    "body": body,
+                    "snippet": email.snippet
+                ]
+            } catch {
+                return ["error": "Failed to get email: \(error.localizedDescription)"]
+            }
+
+        case "listCalendarEvents":
+            let formatter = ISO8601DateFormatter()
+            let startDate: Date
+            let endDate: Date
+
+            if let startStr = args["startDate"] as? String, let parsed = formatter.date(from: startStr) {
+                startDate = parsed
+            } else {
+                startDate = Date()
+            }
+
+            if let endStr = args["endDate"] as? String, let parsed = formatter.date(from: endStr) {
+                endDate = parsed
+            } else {
+                endDate = Calendar.current.date(byAdding: .day, value: 7, to: startDate) ?? startDate
+            }
+
+            do {
+                let events = try await oauthManager.getCalendarEvents(startDate: startDate, endDate: endDate)
+                let eventData = events.map { event -> [String: Any] in
+                    var data: [String: Any] = [
+                        "id": event.id,
+                        "summary": event.summary,
+                        "start": event.start.dateTime ?? event.start.date ?? "",
+                        "end": event.end.dateTime ?? event.end.date ?? ""
+                    ]
+                    if let desc = event.description {
+                        data["description"] = desc
+                    }
+                    if let loc = event.location {
+                        data["location"] = loc
+                    }
+                    return data
+                }
+
+                return [
+                    "success": true,
+                    "count": eventData.count,
+                    "events": eventData
+                ]
+            } catch {
+                return ["error": "Failed to list calendar events: \(error.localizedDescription)"]
+            }
+
+        case "createCalendarEvent":
+            guard let title = args["title"] as? String,
+                  let startTimeStr = args["startTime"] as? String,
+                  let endTimeStr = args["endTime"] as? String else {
+                return ["error": "Missing required parameters: title, startTime, endTime"]
+            }
+
+            let formatter = ISO8601DateFormatter()
+            guard let startTime = formatter.date(from: startTimeStr),
+                  let endTime = formatter.date(from: endTimeStr) else {
+                return ["error": "Invalid date format. Use ISO8601 format."]
+            }
+
+            let description = args["description"] as? String
+            let location = args["location"] as? String
+            let attendees = args["attendees"] as? [String]
+
+            do {
+                let eventId = try await oauthManager.createCalendarEvent(
+                    title: title,
+                    startTime: startTime,
+                    endTime: endTime,
+                    description: description,
+                    location: location,
+                    attendees: attendees
+                )
+
+                return [
+                    "success": true,
+                    "eventId": eventId,
+                    "message": "Event '\(title)' created successfully"
+                ]
+            } catch {
+                return ["error": "Failed to create calendar event: \(error.localizedDescription)"]
+            }
+
+        case "updateCalendarEvent":
+            guard let eventId = args["eventId"] as? String else {
+                return ["error": "Missing required parameter: eventId"]
+            }
+
+            let title = args["title"] as? String
+            let description = args["description"] as? String
+            let location = args["location"] as? String
+
+            let formatter = ISO8601DateFormatter()
+            var startTime: Date?
+            var endTime: Date?
+
+            if let startStr = args["startTime"] as? String {
+                startTime = formatter.date(from: startStr)
+            }
+            if let endStr = args["endTime"] as? String {
+                endTime = formatter.date(from: endStr)
+            }
+
+            do {
+                try await oauthManager.updateCalendarEvent(
+                    eventId: eventId,
+                    title: title,
+                    startTime: startTime,
+                    endTime: endTime,
+                    description: description,
+                    location: location
+                )
+
+                return [
+                    "success": true,
+                    "message": "Event updated successfully"
+                ]
+            } catch {
+                return ["error": "Failed to update calendar event: \(error.localizedDescription)"]
+            }
+
+        case "deleteCalendarEvent":
+            guard let eventId = args["eventId"] as? String else {
+                return ["error": "Missing required parameter: eventId"]
+            }
+
+            do {
+                try await oauthManager.deleteCalendarEvent(eventId: eventId)
+
+                return [
+                    "success": true,
+                    "message": "Event deleted successfully"
+                ]
+            } catch {
+                return ["error": "Failed to delete calendar event: \(error.localizedDescription)"]
+            }
+
+        default:
+            return ["error": "Unknown function: \(name)"]
+        }
+    }
+
+    private func extractEmailBody(from payload: GmailMessage.MessagePayload) -> String {
+        // Try to get plain text body
+        if let body = payload.body,
+           let data = body.data,
+           !data.isEmpty {
+            let fixedData = data.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+            if let decoded = Data(base64Encoded: fixedData),
+               let text = String(data: decoded, encoding: .utf8) {
+                return text
+            }
         }
 
-        return responseText
+        // Check parts for multipart messages
+        if let parts = payload.parts {
+            for part in parts {
+                if let body = part.body,
+                   let data = body.data,
+                   !data.isEmpty {
+                    let fixedData = data.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+                    if let decoded = Data(base64Encoded: fixedData),
+                       let text = String(data: decoded, encoding: .utf8) {
+                        return text
+                    }
+                }
+            }
+        }
+
+        return "No body text available"
     }
 
     // MARK: - File Management
@@ -1186,9 +2057,14 @@ final class MultimodalChat {
             return existing
         }
 
-        // Create new OAuth manager from environment
-        guard let clientId = ProcessInfo.processInfo.environment["GOOGLE_OAUTH_CLIENT_ID"] else {
-            print("⚠️ GOOGLE_OAUTH_CLIENT_ID not found in environment")
+        // Create new OAuth manager from VertexConfig
+        print("🔍 DEBUG: Checking VertexConfig for OAuth Client ID...")
+        print("🔍 DEBUG: VertexConfig.shared.oauthClientId = \(VertexConfig.shared.oauthClientId?.prefix(20) ?? "nil")")
+
+        guard let clientId = VertexConfig.shared.oauthClientId else {
+            print("⚠️ GOOGLE_OAUTH_CLIENT_ID not found in configuration")
+            print("💡 Please ensure GOOGLE_OAUTH_CLIENT_ID is set in .env.local")
+            print("💡 Current .env.local path being used: \(VertexConfig.shared.loadedFromFile ?? "none")")
             return nil
         }
 

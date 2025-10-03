@@ -9,7 +9,7 @@ class GoogleOAuthManager: NSObject, ObservableObject {
     @Published var userConsent: UserConsent?
     
     private let clientId: String
-    private let redirectURI = "com.jarvis.vertexai:/oauth"
+    private let redirectURI = "com.googleusercontent.apps.653043868454-oa9ina7p9kj0i782b8ivds1g5c5oatdu:/oauth2redirect"
     private var authSession: ASWebAuthenticationSession?
     private let keychain = KeychainManager()
     private let phiRedactor = PHIRedactor.shared
@@ -66,7 +66,7 @@ class GoogleOAuthManager: NSObject, ObservableObject {
         let callbackURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
             authSession = ASWebAuthenticationSession(
                 url: authURL,
-                callbackURLScheme: "com.jarvis.vertexai"
+                callbackURLScheme: "com.googleusercontent.apps.653043868454-oa9ina7p9kj0i782b8ivds1g5c5oatdu"
             ) { callbackURL, error in
                 if let error = error {
                     continuation.resume(throwing: error)
@@ -263,6 +263,11 @@ class GoogleOAuthManager: NSObject, ObservableObject {
     }
     
     func getCalendarEvents(startDate: Date, endDate: Date) async throws -> [CalendarEvent] {
+        // Refresh token if needed before making request
+        if accessToken == nil {
+            try await refreshTokenIfNeeded()
+        }
+
         guard let token = accessToken else { throw OAuthError.notAuthenticated }
         
         let formatter = ISO8601DateFormatter()
@@ -283,18 +288,106 @@ class GoogleOAuthManager: NSObject, ObservableObject {
         let (data, _) = try await URLSession.shared.data(for: request)
         let response = try JSONDecoder().decode(CalendarResponse.self, from: data)
         
-        // Redact PHI from event details
-        return response.items.map { event in
-            var redactedEvent = event
-            redactedEvent.summary = phiRedactor.redactPHI(from: event.summary)
-            redactedEvent.description = event.description.map { phiRedactor.redactPHI(from: $0) }
-            redactedEvent.location = event.location.map { phiRedactor.redactPHI(from: $0) }
-            // Keep attendees redacted
-            redactedEvent.attendees = nil
-            return redactedEvent
+        // Return events without PHI redaction for personal assistant use
+        return response.items
+    }
+
+    func createCalendarEvent(title: String, startTime: Date, endTime: Date, description: String? = nil, location: String? = nil, attendees: [String]? = nil) async throws -> String {
+        // Refresh token if needed before making request
+        if accessToken == nil {
+            try await refreshTokenIfNeeded()
+        }
+
+        guard let token = accessToken else { throw OAuthError.notAuthenticated }
+
+        let formatter = ISO8601DateFormatter()
+        var eventData: [String: Any] = [
+            "summary": title,
+            "start": ["dateTime": formatter.string(from: startTime)],
+            "end": ["dateTime": formatter.string(from: endTime)]
+        ]
+
+        if let description = description {
+            eventData["description"] = description
+        }
+        if let location = location {
+            eventData["location"] = location
+        }
+        if let attendees = attendees, !attendees.isEmpty {
+            eventData["attendees"] = attendees.map { ["email": $0] }
+        }
+
+        let url = URL(string: "https://www.googleapis.com/calendar/v3/calendars/primary/events")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: eventData)
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let response = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return response?["id"] as? String ?? "unknown"
+    }
+
+    func updateCalendarEvent(eventId: String, title: String? = nil, startTime: Date? = nil, endTime: Date? = nil, description: String? = nil, location: String? = nil) async throws {
+        // Refresh token if needed before making request
+        if accessToken == nil {
+            try await refreshTokenIfNeeded()
+        }
+
+        guard let token = accessToken else { throw OAuthError.notAuthenticated }
+
+        let formatter = ISO8601DateFormatter()
+        var eventData: [String: Any] = [:]
+
+        if let title = title {
+            eventData["summary"] = title
+        }
+        if let startTime = startTime {
+            eventData["start"] = ["dateTime": formatter.string(from: startTime)]
+        }
+        if let endTime = endTime {
+            eventData["end"] = ["dateTime": formatter.string(from: endTime)]
+        }
+        if let description = description {
+            eventData["description"] = description
+        }
+        if let location = location {
+            eventData["location"] = location
+        }
+
+        let url = URL(string: "https://www.googleapis.com/calendar/v3/calendars/primary/events/\(eventId)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: eventData)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw OAuthError.unknown
         }
     }
-    
+
+    func deleteCalendarEvent(eventId: String) async throws {
+        // Refresh token if needed before making request
+        if accessToken == nil {
+            try await refreshTokenIfNeeded()
+        }
+
+        guard let token = accessToken else { throw OAuthError.notAuthenticated }
+
+        let url = URL(string: "https://www.googleapis.com/calendar/v3/calendars/primary/events/\(eventId)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            throw OAuthError.unknown
+        }
+    }
+
     // MARK: - Enhanced Gmail Methods for Personal Assistant
 
     func getTodaysImportantEmails() async throws -> [GmailMessage] {
@@ -329,6 +422,11 @@ class GoogleOAuthManager: NSObject, ObservableObject {
     }
 
     func getGmailMessage(messageId: String) async throws -> GmailMessage {
+        // Refresh token if needed before making request
+        if accessToken == nil {
+            try await refreshTokenIfNeeded()
+        }
+
         guard let token = accessToken else { throw OAuthError.notAuthenticated }
 
         let messageURL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages/\(messageId)")!
@@ -340,6 +438,11 @@ class GoogleOAuthManager: NSObject, ObservableObject {
     }
 
     func searchGmail(query: String, maxResults: Int = 10) async throws -> [GmailMessage] {
+        // Refresh token if needed before making request
+        if accessToken == nil {
+            try await refreshTokenIfNeeded()
+        }
+
         guard let token = accessToken else { throw OAuthError.notAuthenticated }
 
         var components = URLComponents(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages")!
@@ -665,14 +768,24 @@ class GoogleOAuthManager: NSObject, ObservableObject {
     }
     
     private func loadStoredCredentials() {
-        if let token = keychain.getString("google_access_token"),
-           let consentData = keychain.getData("google_consent_record"),
-           let consent = try? JSONDecoder().decode(UserConsent.self, from: consentData),
-           consent.isValid {
-            
-            self.accessToken = token
+        // Check if we have stored credentials
+        if let consentData = keychain.getData("google_consent_record"),
+           let consent = try? JSONDecoder().decode(UserConsent.self, from: consentData) {
+
             self.userConsent = consent
-            self.isAuthenticated = true
+
+            // Load access token if available and consent is valid
+            if consent.isValid, let token = keychain.getString("google_access_token") {
+                self.accessToken = token
+                self.isAuthenticated = true
+            }
+            // If consent exists but access token is missing, check for refresh token
+            else if keychain.getString("google_refresh_token") != nil {
+                // We have a refresh token, mark as authenticated
+                // The actual token refresh will happen on first API call
+                self.isAuthenticated = true
+                print("📝 Access token expired but refresh token available")
+            }
         }
     }
     

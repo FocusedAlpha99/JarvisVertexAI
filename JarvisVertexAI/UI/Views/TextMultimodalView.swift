@@ -9,10 +9,12 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import PhotosUI
+import AVFoundation
 
 struct TextMultimodalView: View {
     // MARK: - Environment Objects
     @EnvironmentObject var coordinator: AppCoordinator
+    @StateObject private var ttsManager = MessageTTSManager.shared
 
     // MARK: - State Properties
     @State private var messageText = ""
@@ -28,6 +30,7 @@ struct TextMultimodalView: View {
     @State private var showingFilePicker = false
     @State private var ephemeralFileCount = 0
     @State private var lastCleanupTime: Date?
+    @FocusState private var isTextFieldFocused: Bool
 
     // MARK: - Computed Properties
     private var canSendMessage: Bool {
@@ -74,9 +77,15 @@ struct TextMultimodalView: View {
         .onAppear {
             setupNotificationObservers()
             updateEphemeralFileStatus()
+            // Auto-focus text field for immediate typing
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isTextFieldFocused = true
+            }
         }
         .onDisappear {
             cleanup()
+            // Stop TTS when leaving view
+            ttsManager.stopSpeech()
         }
         .alert("Error", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
@@ -151,6 +160,7 @@ struct TextMultimodalView: View {
                     } else {
                         ForEach(conversationHistory) { message in
                             MessageBubbleView(message: message)
+                                .environmentObject(ttsManager)
                                 .id(message.id)
                         }
                     }
@@ -256,6 +266,12 @@ struct TextMultimodalView: View {
                         .textFieldStyle(.plain)
                         .lineLimit(1...6)
                         .disabled(isLoading)
+                        .focused($isTextFieldFocused)
+                        .onSubmit {
+                            if canSendMessage {
+                                sendMessage()
+                            }
+                        }
 
                     if isLoading {
                         ProgressView()
@@ -390,6 +406,11 @@ extension TextMultimodalView {
                     attachments: []
                 )
                 conversationHistory.append(assistantMessage)
+
+                // Auto-play TTS for assistant response
+                if ttsManager.autoPlayEnabled {
+                    ttsManager.speakMessage(assistantMessage)
+                }
             } else {
                 showError("Failed to get response from the AI assistant. Please try again.")
             }
@@ -643,6 +664,10 @@ extension TextMultimodalView {
 // MARK: - Supporting Views
 struct MessageBubbleView: View {
     let message: ConversationMessage
+    @EnvironmentObject private var ttsManager: MessageTTSManager
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var showDiscoveryHint = false
+    @State private var hapticGenerator = UIImpactFeedbackGenerator(style: .medium)
 
     var body: some View {
         HStack {
@@ -651,16 +676,7 @@ struct MessageBubbleView: View {
             }
 
             VStack(alignment: message.isUser ? .trailing : .leading, spacing: 4) {
-                Text(message.content)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(
-                        message.isUser ? Color.blue : Color(.systemGray5)
-                    )
-                    .foregroundColor(
-                        message.isUser ? .white : .primary
-                    )
-                    .cornerRadius(18)
+                messageContentView
 
                 if !message.attachments.isEmpty {
                     Text("📎 \(message.attachments.joined(separator: ", "))")
@@ -668,13 +684,202 @@ struct MessageBubbleView: View {
                         .foregroundColor(.secondary)
                 }
 
-                Text(DateFormatter.localizedString(from: message.timestamp, dateStyle: .none, timeStyle: .short))
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                HStack(spacing: 8) {
+                    Text(DateFormatter.localizedString(from: message.timestamp, dateStyle: .none, timeStyle: .short))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+
+                    // TTS indicator for assistant messages
+                    if !message.isUser {
+                        if isCurrentlyBeingRead {
+                            audioWaveIndicator
+                        } else if showDiscoveryHint {
+                            discoveryHint
+                        }
+                    }
+                }
             }
 
             if !message.isUser {
                 Spacer(minLength: 50)
+            }
+        }
+        .onAppear {
+            checkShowDiscoveryHint()
+            hapticGenerator.prepare()
+        }
+    }
+
+    private var isCurrentlyBeingRead: Bool {
+        ttsManager.isMessageCurrentlyPlaying(message.id)
+    }
+
+    private var messageContentView: some View {
+        Text(message.content)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(messageBackgroundView)
+            .foregroundColor(messageTextColor)
+            .cornerRadius(18)
+            .overlay(progressOverlay, alignment: .bottom)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                handleDoubleTap()
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityAction(named: "Read message aloud") {
+                handleDoubleTap()
+            }
+            .accessibilityAction(named: "Stop reading") {
+                ttsManager.stopSpeech()
+            }
+    }
+
+    private var messageBackgroundView: some View {
+        Group {
+            if message.isUser {
+                Color.blue
+            } else if isCurrentlyBeingRead {
+                animatedGradientBackground
+            } else {
+                Color(.systemGray5)
+            }
+        }
+    }
+
+    private var animatedGradientBackground: some View {
+        LinearGradient(
+            colors: [
+                Color(.systemGray5),
+                Color(.systemGray4),
+                Color(.systemGray5)
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+
+    private var messageTextColor: Color {
+        message.isUser ? .white : .primary
+    }
+
+    private var accessibilityLabel: String {
+        var label = message.content
+
+        if !message.isUser {
+            if isCurrentlyBeingRead {
+                let progressPercent = Int(ttsManager.speechProgress * 100)
+                label += ". Currently reading, \(progressPercent) percent complete."
+            } else {
+                label += ". Assistant message. Double-tap to read aloud."
+            }
+        } else {
+            label += ". Your message."
+        }
+
+        return label
+    }
+
+    private var progressOverlay: some View {
+        Group {
+            if isCurrentlyBeingRead {
+                GeometryReader { geometry in
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.blue.opacity(0.6), Color.blue.opacity(0.3)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: geometry.size.width * CGFloat(ttsManager.speechProgress))
+                        .animation(.linear(duration: 0.1), value: ttsManager.speechProgress)
+                }
+                .frame(height: 3)
+                .clipShape(RoundedRectangle(cornerRadius: 1.5))
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+    }
+
+    private var audioWaveIndicator: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<3) { index in
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(Color.blue)
+                    .frame(width: 2)
+                    .frame(height: waveHeight(for: index))
+                    .animation(
+                        reduceMotion ? .none :
+                        .easeInOut(duration: 0.5)
+                        .repeatForever(autoreverses: true)
+                        .delay(Double(index) * 0.15),
+                        value: isCurrentlyBeingRead
+                    )
+            }
+        }
+        .frame(height: 12)
+        .accessibilityLabel("Audio playing")
+    }
+
+    private func waveHeight(for index: Int) -> CGFloat {
+        let baseHeights: [CGFloat] = [6, 10, 8]
+        return isCurrentlyBeingRead ? baseHeights[index] : 3
+    }
+
+    private var discoveryHint: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "speaker.wave.2")
+                .font(.system(size: 8))
+                .foregroundColor(.blue)
+            Text("Double-tap to hear")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(Color(.systemBackground).opacity(0.8))
+        .cornerRadius(8)
+    }
+
+    private func handleDoubleTap() {
+        guard !message.isUser else { return }
+
+        // Provide haptic feedback
+        hapticGenerator.impactOccurred()
+
+        // Hide discovery hint once user has used the feature
+        if showDiscoveryHint {
+            withAnimation(.easeOut(duration: 0.3)) {
+                showDiscoveryHint = false
+            }
+            UserDefaults.standard.set(true, forKey: "tts_discovery_completed")
+        }
+
+        // Announce to VoiceOver
+        if UIAccessibility.isVoiceOverRunning {
+            UIAccessibility.post(notification: .announcement, argument: "Reading message")
+        }
+
+        // Initiate TTS
+        ttsManager.speakMessage(message)
+    }
+
+    private func checkShowDiscoveryHint() {
+        let hasCompletedDiscovery = UserDefaults.standard.bool(forKey: "tts_discovery_completed")
+        if !hasCompletedDiscovery && !message.isUser {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                withAnimation(.easeIn(duration: 0.5)) {
+                    showDiscoveryHint = true
+                }
+
+                // Auto-hide after 5 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
+                    withAnimation(.easeOut(duration: 0.5)) {
+                        showDiscoveryHint = false
+                    }
+                }
             }
         }
     }
